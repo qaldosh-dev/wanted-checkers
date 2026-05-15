@@ -140,6 +140,12 @@ export default function Home() {
 
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <StatusPill game={game} />
+            <a
+              href="/wanted-board"
+              className="flex h-10 items-center rounded-md border border-stone-600 px-4 font-bold text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
+            >
+              WANTED Board
+            </a>
             <button
               type="button"
               onClick={startGame}
@@ -168,7 +174,9 @@ export default function Home() {
             <InfoRow label="Turn" value={game?.currentTurn ? `Player ${game.currentTurn}` : "Loading"} />
             <InfoRow label="Forced jump" value={game?.forcedFrom ?? "None"} />
             {error ? <p className="rounded-md bg-red-950/80 px-3 py-2 text-sm text-red-100">{error}</p> : null}
-            {game?.status === "finished" ? <WinnerPanel winner={game.winner} onRestart={startGame} /> : null}
+            {game?.status === "finished" ? (
+              <BountyResultPanel matchResult={game.matchResult} winner={game.winner} onRestart={startGame} />
+            ) : null}
           </aside>
         </section>
       </div>
@@ -256,22 +264,75 @@ function InfoRow({ label, value }) {
   );
 }
 
-function WinnerPanel({ winner, onRestart }) {
+function BountyResultPanel({ matchResult, winner, onRestart }) {
+  if (!matchResult) {
+    return (
+      <div className="rounded-lg border border-amber-300 bg-amber-300 p-4 text-stone-950">
+        <p className="text-sm font-semibold uppercase">Winner</p>
+        <p className="mt-1 text-3xl font-black tracking-normal">Player {winner}</p>
+        <button
+          type="button"
+          onClick={onRestart}
+          className="mt-4 h-10 w-full rounded-md bg-stone-950 px-4 font-bold text-amber-200 transition hover:bg-stone-800"
+        >
+          New Game
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded-lg border border-amber-300 bg-amber-300 p-4 text-stone-950">
-      <p className="text-sm font-semibold uppercase">Winner</p>
-      <p className="mt-1 text-3xl font-black tracking-normal">Player {winner}</p>
+    <div className="rounded-lg border-4 border-stone-950 bg-[#d7b36a] p-4 text-stone-950 shadow-xl shadow-black/30">
+      <p className="text-sm font-black uppercase">BOUNTY UPDATED</p>
+      <p className="mt-2 text-3xl font-black tracking-normal">{matchResult.winnerDisplayName}</p>
+      <p className="mt-3 text-4xl font-black tracking-normal text-red-900">
+        +{formatBounty(matchResult.bountyGain)}
+      </p>
+      <InfoRowDark label="Total bounty" value={formatBounty(matchResult.winnerNewBounty)} />
+      <InfoRowDark label="Tier" value={matchResult.winnerTier} />
+      <InfoRowDark label="Streak" value={`x${matchResult.streakMultiplier}`} />
+
+      <div className="mt-4 space-y-2">
+        <p className="text-xs font-black uppercase">Bonuses</p>
+        {matchResult.bonusesApplied.length > 0 ? (
+          matchResult.bonusesApplied.map((bonus) => (
+            <div
+              key={bonus.code}
+              className="flex items-center justify-between gap-3 border-b border-stone-950/30 pb-2 text-sm font-bold"
+            >
+              <span>{bonus.label}</span>
+              <span>+{formatBounty(bonus.amount)}</span>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm font-semibold">No bonus bounty applied.</p>
+        )}
+      </div>
+
       <button
         type="button"
         onClick={onRestart}
         className="mt-4 h-10 w-full rounded-md bg-stone-950 px-4 font-bold text-amber-200 transition hover:bg-stone-800"
       >
-        Play Again
+        New Game
       </button>
+    </div>
+  );
+}
+
+function InfoRowDark({ label, value }) {
+  return (
+    <div className="mt-3 flex items-center justify-between gap-4 border-b border-stone-950/30 pb-2 text-sm">
+      <span className="font-semibold text-stone-800">{label}</span>
+      <span className="max-w-[150px] truncate font-black text-stone-950">{value}</span>
     </div>
   );
 }
 
 function shortId(value) {
   return `${value.slice(0, 8)}...`;
+}
+
+function formatBounty(value) {
+  return new Intl.NumberFormat("en-US").format(value);
 }

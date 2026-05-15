@@ -2,6 +2,7 @@ import "dotenv/config";
 import cors from "cors";
 import express from "express";
 import { gameRouter } from "./routes/game.js";
+import { playersRouter } from "./routes/players.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 4000);
@@ -14,6 +15,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/api/game", gameRouter);
+app.use("/api/players", playersRouter);
 
 app.use((error, _req, res, _next) => {
   console.error(error);

@@ -74,6 +74,50 @@ test("multi-jump capture keeps turn and forces same piece to continue", () => {
   assert.equal(afterSecondJump.forcedFrom, null);
 });
 
+test("regular pieces move only forward but can capture backward", () => {
+  const board = emptyBoard();
+  board[idx(3, 2)] = P1;
+  board[idx(4, 3)] = P2;
+  board[idx(5, 6)] = P1;
+
+  const state = { board, currentTurn: 1, forcedFrom: null, status: "ongoing" };
+  const legalMoves = getLegalMoves(state);
+
+  assert.deepEqual(
+    legalMoves.map((move) => [move.from, move.to, move.capture]),
+    [[idx(3, 2), idx(5, 4), idx(4, 3)]]
+  );
+  assert.throws(() => applyMove(state, { from: idx(3, 2), to: idx(2, 1) }), /Illegal move/);
+  assert.throws(() => applyMove(state, { from: idx(5, 6), to: idx(6, 5) }), /Illegal move/);
+});
+
+test("regular pieces can continue multi-jumps with backward captures", () => {
+  const board = emptyBoard();
+  board[idx(5, 0)] = P1;
+  board[idx(4, 1)] = P2;
+  board[idx(4, 3)] = P2;
+
+  const afterForwardCapture = applyMove(
+    { board, currentTurn: 1, forcedFrom: null, status: "ongoing" },
+    { from: idx(5, 0), to: idx(3, 2) }
+  );
+
+  assert.equal(afterForwardCapture.currentTurn, 1);
+  assert.equal(afterForwardCapture.forcedFrom, idx(3, 2));
+  assert.deepEqual(
+    getLegalMovesFrom(afterForwardCapture, idx(3, 2)).map((move) => [move.to, move.capture]),
+    [[idx(5, 4), idx(4, 3)]]
+  );
+
+  const afterBackwardCapture = applyMove(afterForwardCapture, {
+    from: idx(3, 2),
+    to: idx(5, 4)
+  });
+
+  assert.equal(afterBackwardCapture.status, "finished");
+  assert.equal(afterBackwardCapture.winner, 1);
+});
+
 test("pieces promote to kings on the last row", () => {
   const board = emptyBoard();
   board[idx(1, 2)] = P1;

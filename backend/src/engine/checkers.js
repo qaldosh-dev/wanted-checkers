@@ -186,6 +186,13 @@ function getPieceMoves(board, from, player) {
 }
 
 function getManMoves(board, from, player) {
+  return [
+    ...getManQuietMoves(board, from, player),
+    ...getManCaptureMoves(board, from, player)
+  ];
+}
+
+function getManQuietMoves(board, from, player) {
   const { row, col } = rowColFromIndex(from);
   const moves = [];
 
@@ -195,11 +202,22 @@ function getManMoves(board, from, player) {
 
     if (board[adjacent] === EMPTY) {
       moves.push({ from, to: adjacent, capture: null });
-      continue;
     }
+  }
 
+  return moves;
+}
+
+function getManCaptureMoves(board, from, player) {
+  const { row, col } = rowColFromIndex(from);
+  const moves = [];
+
+  for (const [rowDelta, colDelta] of KING_DIRECTIONS) {
+    const adjacent = indexFromRowCol(row + rowDelta, col + colDelta);
     const landing = indexFromRowCol(row + rowDelta * 2, col + colDelta * 2);
+
     if (
+      adjacent !== null &&
       landing !== null &&
       board[landing] === EMPTY &&
       ENEMY_PIECES[player].includes(board[adjacent])

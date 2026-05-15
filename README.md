@@ -49,5 +49,9 @@ Frontend opens at `http://localhost:3000`, backend at `http://localhost:4000`.
 - `POST /api/game/move` with `{ "gameId": "...", "from": 9, "to": 13 }`
 - `GET /api/game/state/:gameId`
 - `GET /api/game/moves/:gameId/:from` for backend-sourced move highlights
+- `GET /api/players/leaderboard` for the MVP WANTED board
 
 Board state is a 32-element array of playable dark squares.
+
+Finished games include a `matchResult` payload with bounty gain/loss, tiers,
+streak multiplier, and applied bonuses.

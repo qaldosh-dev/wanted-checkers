@@ -4,7 +4,7 @@ export async function createGameRecord(state) {
   const result = await query(
     `INSERT INTO games (board, current_turn, forced_from, status, winner)
      VALUES ($1::jsonb, $2, $3, $4, $5)
-     RETURNING id, board, current_turn, forced_from, status, winner, created_at`,
+     RETURNING id, board, current_turn, forced_from, status, winner, match_result, created_at`,
     [
       JSON.stringify(state.board),
       state.currentTurn,
@@ -19,7 +19,7 @@ export async function createGameRecord(state) {
 
 export async function findGameRecord(gameId) {
   const result = await query(
-    `SELECT id, board, current_turn, forced_from, status, winner, created_at
+    `SELECT id, board, current_turn, forced_from, status, winner, match_result, created_at
      FROM games
      WHERE id = $1`,
     [gameId]
@@ -29,23 +29,27 @@ export async function findGameRecord(gameId) {
   return mapGameRow(result.rows[0]);
 }
 
-export async function updateGameRecord(gameId, state) {
-  const result = await query(
+export async function updateGameRecord(gameId, state, options = {}) {
+  const executor = options.client ?? { query };
+  const matchResult = state.matchResult ?? options.matchResult ?? null;
+  const result = await executor.query(
     `UPDATE games
      SET board = $2::jsonb,
          current_turn = $3,
          forced_from = $4,
          status = $5,
-         winner = $6
+         winner = $6,
+         match_result = $7::jsonb
      WHERE id = $1
-     RETURNING id, board, current_turn, forced_from, status, winner, created_at`,
+     RETURNING id, board, current_turn, forced_from, status, winner, match_result, created_at`,
     [
       gameId,
       JSON.stringify(state.board),
       state.currentTurn,
       state.forcedFrom,
       state.status,
-      state.winner
+      state.winner,
+      matchResult ? JSON.stringify(matchResult) : null
     ]
   );
 
@@ -61,6 +65,7 @@ export function mapGameRow(row) {
     forcedFrom: row.forced_from,
     status: row.status,
     winner: row.winner,
+    matchResult: row.match_result,
     createdAt: row.created_at
   };
 }

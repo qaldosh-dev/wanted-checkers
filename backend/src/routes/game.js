@@ -11,6 +11,7 @@ import {
   findGameRecord,
   updateGameRecord
 } from "../gameRepository.js";
+import { completeMatchWithBounty } from "../matchResultService.js";
 
 export const gameRouter = express.Router();
 
@@ -75,7 +76,11 @@ gameRouter.post("/move", async (req, res, next) => {
     }
 
     const nextState = applyMove(toEngineState(game), { from, to });
-    const updated = await updateGameRecord(gameId, nextState);
+    const updated =
+      nextState.status === "finished"
+        ? await completeMatchWithBounty(gameId, nextState)
+        : await updateGameRecord(gameId, nextState);
+
     res.json(updated);
   } catch (error) {
     if (/Illegal move|Invalid board index|finished/.test(error.message)) {
