@@ -1,16 +1,35 @@
 import { query } from "./db.js";
 
-export async function createGameRecord(state) {
+export async function createGameRecord(state, players = {}) {
   const result = await query(
-    `INSERT INTO games (board, current_turn, forced_from, status, winner)
-     VALUES ($1::jsonb, $2, $3, $4, $5)
-     RETURNING id, board, current_turn, forced_from, status, winner, match_result, created_at`,
+    `INSERT INTO games (
+       board,
+       current_turn,
+       forced_from,
+       status,
+       winner,
+       player_one_user_id,
+       player_two_user_id
+     )
+     VALUES ($1::jsonb, $2, $3, $4, $5, $6, $7)
+     RETURNING id,
+               board,
+               current_turn,
+               forced_from,
+               status,
+               winner,
+               player_one_user_id,
+               player_two_user_id,
+               match_result,
+               created_at`,
     [
       JSON.stringify(state.board),
       state.currentTurn,
       state.forcedFrom,
       state.status,
-      state.winner
+      state.winner,
+      players.playerOneUserId,
+      players.playerTwoUserId
     ]
   );
 
@@ -19,7 +38,16 @@ export async function createGameRecord(state) {
 
 export async function findGameRecord(gameId) {
   const result = await query(
-    `SELECT id, board, current_turn, forced_from, status, winner, match_result, created_at
+    `SELECT id,
+            board,
+            current_turn,
+            forced_from,
+            status,
+            winner,
+            player_one_user_id,
+            player_two_user_id,
+            match_result,
+            created_at
      FROM games
      WHERE id = $1`,
     [gameId]
@@ -41,7 +69,16 @@ export async function updateGameRecord(gameId, state, options = {}) {
          winner = $6,
          match_result = $7::jsonb
      WHERE id = $1
-     RETURNING id, board, current_turn, forced_from, status, winner, match_result, created_at`,
+     RETURNING id,
+               board,
+               current_turn,
+               forced_from,
+               status,
+               winner,
+               player_one_user_id,
+               player_two_user_id,
+               match_result,
+               created_at`,
     [
       gameId,
       JSON.stringify(state.board),
@@ -65,6 +102,8 @@ export function mapGameRow(row) {
     forcedFrom: row.forced_from,
     status: row.status,
     winner: row.winner,
+    playerOneUserId: row.player_one_user_id,
+    playerTwoUserId: row.player_two_user_id,
     matchResult: row.match_result,
     createdAt: row.created_at
   };

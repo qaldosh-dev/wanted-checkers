@@ -1,338 +1,134 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import {
+  BoardMotif,
+  BrandNav,
+  CinematicButton,
+  PageBackground,
+  PosterPanel,
+  WantedPosterCard
+} from "./components/wanted-ui";
+import { useAuth } from "./auth-context";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
-const PIECE_LABELS = {
-  1: "P1",
-  2: "P2",
-  3: "K1",
-  4: "K2"
-};
-
-export default function Home() {
-  const [sessionId, setSessionId] = useState("");
-  const [game, setGame] = useState(null);
-  const [selected, setSelected] = useState(null);
-  const [moves, setMoves] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const moveTargets = useMemo(() => new Set(moves.map((move) => move.to)), [moves]);
-
-  const refreshGame = useCallback(async (gameId) => {
-    const response = await fetch(`${API_URL}/api/game/state/${gameId}`, { cache: "no-store" });
-    if (!response.ok) throw new Error("Could not load game state.");
-    const nextGame = await response.json();
-    setGame(nextGame);
-  }, []);
-
-  const startGame = useCallback(async () => {
-    setIsLoading(true);
-    setError("");
-    setSelected(null);
-    setMoves([]);
-
-    try {
-      const storedSessionId = window.localStorage.getItem("wanted-checkers-session-id") ?? "";
-      const response = await fetch(`${API_URL}/api/game/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: storedSessionId || undefined })
-      });
-
-      if (!response.ok) throw new Error("Could not start a new game.");
-      const nextGame = await response.json();
-      window.localStorage.setItem("wanted-checkers-session-id", nextGame.sessionId);
-      setSessionId(nextGame.sessionId);
-      setGame(nextGame);
-    } catch (caughtError) {
-      setError(caughtError.message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+export default function LandingPage() {
+  const auth = useAuth();
+  const [players, setPlayers] = useState([]);
 
   useEffect(() => {
-    setSessionId(window.localStorage.getItem("wanted-checkers-session-id") ?? "");
-    startGame();
-  }, [startGame]);
-
-  useEffect(() => {
-    if (!game?.gameId) return undefined;
-
-    const intervalId = window.setInterval(() => {
-      refreshGame(game.gameId).catch((caughtError) => setError(caughtError.message));
-    }, 1000);
-
-    return () => window.clearInterval(intervalId);
-  }, [game?.gameId, refreshGame]);
-
-  async function selectSquare(playableIndex) {
-    if (!game || game.status !== "ongoing") return;
-
-    if (selected !== null && moveTargets.has(playableIndex)) {
-      await submitMove(selected, playableIndex);
-      return;
-    }
-
-    setSelected(playableIndex);
-    setError("");
-
-    try {
-      const response = await fetch(`${API_URL}/api/game/moves/${game.gameId}/${playableIndex}`, {
-        cache: "no-store"
-      });
-      if (!response.ok) throw new Error("Could not load valid moves.");
-      const payload = await response.json();
-      setMoves(payload.moves);
-
-      if (payload.moves.length === 0) {
-        setSelected(null);
+    async function loadPlayers() {
+      try {
+        const response = await fetch(`${API_URL}/api/players/leaderboard`, { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = await response.json();
+        setPlayers(payload.players.slice(0, 3));
+      } catch {
+        setPlayers([]);
       }
-    } catch (caughtError) {
-      setSelected(null);
-      setMoves([]);
-      setError(caughtError.message);
     }
-  }
 
-  async function submitMove(from, to) {
-    if (!game) return;
-
-    setIsLoading(true);
-    setError("");
-
-    try {
-      const response = await fetch(`${API_URL}/api/game/move`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gameId: game.gameId, from, to })
-      });
-
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? "Illegal move.");
-
-      setGame(payload);
-      setSelected(null);
-      setMoves([]);
-    } catch (caughtError) {
-      setError(caughtError.message);
-      await refreshGame(game.gameId);
-    } finally {
-      setIsLoading(false);
-    }
-  }
+    loadPlayers();
+  }, []);
 
   return (
-    <main className="min-h-screen bg-[#15110c] text-stone-100">
-      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
-        <header className="flex flex-col gap-4 border-b border-stone-700/70 pb-5 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase text-amber-400">
-              WANTED CHECKERS
-            </p>
-            <h1 className="mt-2 text-3xl font-black tracking-normal text-stone-50 sm:text-5xl">
-              Dark-square duel
-            </h1>
+    <PageBackground>
+      <BrandNav auth={auth} />
+
+      <section className="mx-auto grid min-h-[calc(100vh-88px)] max-w-7xl items-center gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1fr_0.95fr] lg:px-8">
+        <div className="relative">
+          <BoardMotif className="absolute -left-8 -top-8 h-56 w-56 rotate-12 blur-[1px]" />
+          <p className="relative text-sm font-black uppercase text-red-300">Dark-square bounty arena</p>
+          <h1 className="relative mt-4 max-w-4xl text-5xl font-black uppercase leading-[0.92] tracking-normal text-amber-100 sm:text-7xl lg:text-8xl">
+            BECOME THE MOST WANTED PLAYER
+          </h1>
+          <p className="relative mt-6 max-w-2xl text-xl font-semibold text-stone-300 sm:text-2xl">
+            Raise your bounty. Defeat rivals. Rule the board.
+          </p>
+
+          <div className="relative mt-8 flex flex-wrap gap-4">
+            <CinematicButton href={auth.isAuthenticated ? "/play" : "/login"} className="text-lg">
+              Play Now
+            </CinematicButton>
+            <CinematicButton href="/wanted-board" variant="dark" className="text-lg">
+              View Wanted Board
+            </CinematicButton>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <StatusPill game={game} />
-            <a
-              href="/wanted-board"
-              className="flex h-10 items-center rounded-md border border-stone-600 px-4 font-bold text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
-            >
-              WANTED Board
-            </a>
-            <button
-              type="button"
-              onClick={startGame}
-              disabled={isLoading}
-              className="h-10 rounded-md border border-amber-400/70 px-4 font-bold text-amber-200 transition hover:bg-amber-400 hover:text-stone-950 disabled:cursor-wait disabled:opacity-60"
-            >
-              New Game
-            </button>
-          </div>
-        </header>
-
-        <section className="grid flex-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="mx-auto w-full max-w-[680px]">
-            <Board
-              board={game?.board ?? Array(32).fill(0)}
-              selected={selected}
-              moveTargets={moveTargets}
-              onSquareClick={selectSquare}
-              disabled={!game || isLoading}
-            />
-          </div>
-
-          <aside className="space-y-4 border-t border-stone-700/70 pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-            <InfoRow label="Game" value={game?.gameId ? shortId(game.gameId) : "Starting"} />
-            <InfoRow label="Session" value={sessionId ? shortId(sessionId) : "Local"} />
-            <InfoRow label="Turn" value={game?.currentTurn ? `Player ${game.currentTurn}` : "Loading"} />
-            <InfoRow label="Forced jump" value={game?.forcedFrom ?? "None"} />
-            {error ? <p className="rounded-md bg-red-950/80 px-3 py-2 text-sm text-red-100">{error}</p> : null}
-            {game?.status === "finished" ? (
-              <BountyResultPanel matchResult={game.matchResult} winner={game.winner} onRestart={startGame} />
-            ) : null}
-          </aside>
-        </section>
-      </div>
-    </main>
-  );
-}
-
-function Board({ board, selected, moveTargets, onSquareClick, disabled }) {
-  return (
-    <div className="aspect-square w-full overflow-hidden rounded-lg border border-stone-700 bg-stone-950 shadow-2xl shadow-black/40">
-      <div className="grid h-full w-full grid-cols-8 grid-rows-8">
-        {Array.from({ length: 64 }, (_, square) => {
-          const row = Math.floor(square / 8);
-          const col = square % 8;
-          const isPlayable = (row + col) % 2 === 1;
-          const playableIndex = isPlayable ? row * 4 + Math.floor(col / 2) : null;
-          const piece = playableIndex === null ? 0 : board[playableIndex];
-          const isSelected = selected === playableIndex;
-          const isMoveTarget = playableIndex !== null && moveTargets.has(playableIndex);
-
-          return (
-            <button
-              key={square}
-              type="button"
-              disabled={!isPlayable || disabled}
-              onClick={() => playableIndex !== null && onSquareClick(playableIndex)}
-              className={[
-                "relative flex items-center justify-center",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-0",
-                isPlayable ? "bg-[#55351f] hover:bg-[#674126]" : "bg-[#c9a66b]",
-                isSelected ? "inset-ring" : ""
-              ].join(" ")}
-              aria-label={isPlayable ? `Playable square ${playableIndex}` : "Light square"}
-            >
-              {piece !== 0 ? <Piece piece={piece} selected={isSelected} /> : null}
-              {isMoveTarget ? <span className="absolute h-3 w-3 rounded-full bg-amber-300/80 shadow shadow-black/40" /> : null}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function Piece({ piece, selected }) {
-  const isPlayerOne = piece === 1 || piece === 3;
-  const isKing = piece === 3 || piece === 4;
-
-  return (
-    <span
-      className={[
-        "flex h-[72%] w-[72%] items-center justify-center rounded-full border-4 text-xs font-black shadow-lg sm:text-sm",
-        isPlayerOne
-          ? "border-red-950 bg-red-700 text-red-50 shadow-red-950/50"
-          : "border-stone-950 bg-stone-100 text-stone-950 shadow-black/60",
-        selected ? "ring-4 ring-amber-300" : "ring-1 ring-black/40"
-      ].join(" ")}
-    >
-      {isKing ? "K" : PIECE_LABELS[piece]}
-    </span>
-  );
-}
-
-function StatusPill({ game }) {
-  const label =
-    game?.status === "finished"
-      ? `Player ${game.winner} wins`
-      : game?.currentTurn
-        ? `Player ${game.currentTurn} to move`
-        : "Loading";
-
-  return (
-    <div className="flex h-10 items-center rounded-md bg-stone-900 px-4 font-bold text-stone-100 ring-1 ring-stone-700">
-      {label}
-    </div>
-  );
-}
-
-function InfoRow({ label, value }) {
-  return (
-    <div className="flex items-center justify-between gap-4 border-b border-stone-800 pb-3 text-sm">
-      <span className="text-stone-400">{label}</span>
-      <span className="max-w-[170px] truncate font-semibold text-stone-100">{value}</span>
-    </div>
-  );
-}
-
-function BountyResultPanel({ matchResult, winner, onRestart }) {
-  if (!matchResult) {
-    return (
-      <div className="rounded-lg border border-amber-300 bg-amber-300 p-4 text-stone-950">
-        <p className="text-sm font-semibold uppercase">Winner</p>
-        <p className="mt-1 text-3xl font-black tracking-normal">Player {winner}</p>
-        <button
-          type="button"
-          onClick={onRestart}
-          className="mt-4 h-10 w-full rounded-md bg-stone-950 px-4 font-bold text-amber-200 transition hover:bg-stone-800"
-        >
-          New Game
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-lg border-4 border-stone-950 bg-[#d7b36a] p-4 text-stone-950 shadow-xl shadow-black/30">
-      <p className="text-sm font-black uppercase">BOUNTY UPDATED</p>
-      <p className="mt-2 text-3xl font-black tracking-normal">{matchResult.winnerDisplayName}</p>
-      <p className="mt-3 text-4xl font-black tracking-normal text-red-900">
-        +{formatBounty(matchResult.bountyGain)}
-      </p>
-      <InfoRowDark label="Total bounty" value={formatBounty(matchResult.winnerNewBounty)} />
-      <InfoRowDark label="Tier" value={matchResult.winnerTier} />
-      <InfoRowDark label="Streak" value={`x${matchResult.streakMultiplier}`} />
-
-      <div className="mt-4 space-y-2">
-        <p className="text-xs font-black uppercase">Bonuses</p>
-        {matchResult.bonusesApplied.length > 0 ? (
-          matchResult.bonusesApplied.map((bonus) => (
-            <div
-              key={bonus.code}
-              className="flex items-center justify-between gap-3 border-b border-stone-950/30 pb-2 text-sm font-bold"
-            >
-              <span>{bonus.label}</span>
-              <span>+{formatBounty(bonus.amount)}</span>
+          <PosterPanel className="mt-10 max-w-3xl p-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase text-stone-800">Arena marks</p>
+                <h2 className="text-2xl font-black uppercase tracking-normal text-stone-950">
+                  Crowns, diagonals, and bounties
+                </h2>
+              </div>
+              <div className="flex gap-3 text-4xl text-stone-950">
+                <span className="grid h-14 w-14 place-items-center rounded-full border-4 border-stone-950 bg-red-800 text-amber-100 shadow-inner">
+                  K
+                </span>
+                <span className="grid h-14 w-14 place-items-center rounded-full border-4 border-stone-950 bg-stone-100 text-stone-950 shadow-inner">
+                  C
+                </span>
+                <span className="grid h-14 w-14 place-items-center rounded-full border-4 border-stone-950 bg-amber-300 text-stone-950 shadow-inner">
+                  W
+                </span>
+              </div>
             </div>
-          ))
-        ) : (
-          <p className="text-sm font-semibold">No bonus bounty applied.</p>
-        )}
-      </div>
+          </PosterPanel>
+        </div>
 
-      <button
-        type="button"
-        onClick={onRestart}
-        className="mt-4 h-10 w-full rounded-md bg-stone-950 px-4 font-bold text-amber-200 transition hover:bg-stone-800"
-      >
-        New Game
-      </button>
-    </div>
+        <div>
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase text-amber-400">Top most wanted</p>
+              <h2 className="text-3xl font-black uppercase tracking-normal text-stone-50">Poster Wall</h2>
+            </div>
+            <a href="/wanted-board" className="text-sm font-black uppercase text-amber-200 hover:text-amber-100">
+              View all
+            </a>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
+            {(players.length ? players : fallbackPlayers).map((player, index) => (
+              <WantedPosterCard key={player.userId ?? player.username} player={player} rank={index + 1} compact />
+            ))}
+          </div>
+        </div>
+      </section>
+    </PageBackground>
   );
 }
 
-function InfoRowDark({ label, value }) {
-  return (
-    <div className="mt-3 flex items-center justify-between gap-4 border-b border-stone-950/30 pb-2 text-sm">
-      <span className="font-semibold text-stone-800">{label}</span>
-      <span className="max-w-[150px] truncate font-black text-stone-950">{value}</span>
-    </div>
-  );
-}
-
-function shortId(value) {
-  return `${value.slice(0, 8)}...`;
-}
-
-function formatBounty(value) {
-  return new Intl.NumberFormat("en-US").format(value);
-}
+const fallbackPlayers = [
+  {
+    userId: "preview-1",
+    username: "crown_rival",
+    city: "Iron Harbor",
+    bounty: 5_600_000,
+    tier: "Rookie Threat",
+    wins: 8,
+    losses: 2,
+    currentWinStreak: 3
+  },
+  {
+    userId: "preview-2",
+    username: "diagonal_ace",
+    city: "Red Lantern Bay",
+    bounty: 12_400_000,
+    tier: "Rising Menace",
+    wins: 15,
+    losses: 5,
+    currentWinStreak: 4
+  },
+  {
+    userId: "preview-3",
+    username: "kingmaker",
+    city: "Black Dock",
+    bounty: 51_000_000,
+    tier: "Dangerous",
+    wins: 32,
+    losses: 8,
+    currentWinStreak: 6
+  }
+];

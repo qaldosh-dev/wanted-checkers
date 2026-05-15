@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import express from "express";
+import { requireAuth } from "../auth/middleware.js";
 import {
   applyMove,
   createInitialState,
@@ -12,12 +13,18 @@ import {
   updateGameRecord
 } from "../gameRepository.js";
 import { completeMatchWithBounty } from "../matchResultService.js";
+import { findPlayerStatsByUserIds } from "../playerStatsRepository.js";
 
 export const gameRouter = express.Router();
 
-gameRouter.post("/start", async (req, res, next) => {
+gameRouter.post("/start", requireAuth, async (req, res, next) => {
   try {
-    const game = await createGameRecord(createInitialState());
+    const opponentUserId = await resolveOpponentUserId(req.user.id, req.body?.opponentUserId);
+
+    const game = await createGameRecord(createInitialState(), {
+      playerOneUserId: req.user.id,
+      playerTwoUserId: opponentUserId ?? null
+    });
 
     res.status(201).json({
       sessionId: req.body?.sessionId ?? randomUUID(),
@@ -42,11 +49,15 @@ gameRouter.get("/state/:gameId", async (req, res, next) => {
   }
 });
 
-gameRouter.get("/moves/:gameId/:from", async (req, res, next) => {
+gameRouter.get("/moves/:gameId/:from", requireAuth, async (req, res, next) => {
   try {
     const game = await findGameRecord(req.params.gameId);
     if (!game) {
       res.status(404).json({ error: "Game not found." });
+      return;
+    }
+    if (!isParticipant(game, req.user.id)) {
+      res.status(403).json({ error: "You are not a participant in this game." });
       return;
     }
 
@@ -61,7 +72,7 @@ gameRouter.get("/moves/:gameId/:from", async (req, res, next) => {
   }
 });
 
-gameRouter.post("/move", async (req, res, next) => {
+gameRouter.post("/move", requireAuth, async (req, res, next) => {
   try {
     const { gameId, from, to } = req.body ?? {};
     if (!gameId || from === undefined || to === undefined) {
@@ -74,11 +85,15 @@ gameRouter.post("/move", async (req, res, next) => {
       res.status(404).json({ error: "Game not found." });
       return;
     }
+    if (!isParticipant(game, req.user.id)) {
+      res.status(403).json({ error: "You are not a participant in this game." });
+      return;
+    }
 
     const nextState = applyMove(toEngineState(game), { from, to });
     const updated =
       nextState.status === "finished"
-        ? await completeMatchWithBounty(gameId, nextState)
+        ? await completeMatchWithBounty(game, nextState)
         : await updateGameRecord(gameId, nextState);
 
     res.json(updated);
@@ -99,4 +114,17 @@ function toEngineState(game) {
     status: game.status,
     winner: game.winner
   };
+}
+
+async function resolveOpponentUserId(currentUserId, requestedOpponentUserId) {
+  if (requestedOpponentUserId && requestedOpponentUserId !== currentUserId) {
+    const stats = await findPlayerStatsByUserIds([requestedOpponentUserId]);
+    return stats.length > 0 ? requestedOpponentUserId : null;
+  }
+
+  return null;
+}
+
+function isParticipant(game, userId) {
+  return game.playerOneUserId === userId || game.playerTwoUserId === userId;
 }

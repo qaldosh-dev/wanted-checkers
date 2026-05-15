@@ -13,7 +13,8 @@ body {
 }
 
 body {
-  background: #15110c;
+  background: #090706;
+  color: #f5ead2;
 }
 
 button {
@@ -27,4 +28,204 @@ button {
   border-radius: 6px;
   content: "";
   pointer-events: none;
+}
+
+.wanted-bg {
+  position: relative;
+  background:
+    radial-gradient(circle at 20% 15%, rgba(156, 64, 18, 0.34), transparent 30%),
+    radial-gradient(circle at 82% 18%, rgba(242, 193, 78, 0.14), transparent 28%),
+    linear-gradient(135deg, #070605 0%, #17100c 44%, #080706 100%);
+}
+
+.wanted-bg::before {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(rgba(255, 210, 130, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 210, 130, 0.03) 1px, transparent 1px),
+    repeating-linear-gradient(45deg, rgba(215, 179, 106, 0.025) 0 2px, transparent 2px 8px);
+  background-size: 48px 48px, 48px 48px, 18px 18px;
+  mask-image: radial-gradient(circle at 50% 35%, black, transparent 82%);
+}
+
+.wanted-bg::after {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: "";
+  background:
+    radial-gradient(circle at 50% 40%, transparent 0 48%, rgba(0, 0, 0, 0.72) 100%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.64));
+}
+
+.poster-panel,
+.wanted-poster {
+  position: relative;
+  border: 3px solid rgba(31, 20, 11, 0.9);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(255, 242, 190, 0.5), transparent 24%),
+    linear-gradient(135deg, #e0bf78 0%, #c6954d 45%, #916231 100%);
+  color: #1d1209;
+  box-shadow:
+    0 22px 55px rgba(0, 0, 0, 0.52),
+    inset 0 0 34px rgba(68, 34, 12, 0.44);
+}
+
+.poster-panel::before,
+.wanted-poster::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  content: "";
+  background:
+    repeating-linear-gradient(0deg, rgba(68, 34, 12, 0.05) 0 1px, transparent 1px 5px),
+    radial-gradient(circle at 10% 0%, rgba(75, 20, 8, 0.22), transparent 26%),
+    radial-gradient(circle at 100% 100%, rgba(53, 20, 8, 0.28), transparent 32%);
+  mix-blend-mode: multiply;
+}
+
+.poster-panel > *,
+.wanted-poster > * {
+  position: relative;
+  z-index: 1;
+}
+
+.wanted-poster {
+  padding: 1.15rem;
+  transform: rotate(var(--poster-tilt, -0.6deg));
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.wanted-poster:nth-child(even) {
+  --poster-tilt: 0.8deg;
+}
+
+.wanted-poster:hover {
+  transform: translateY(-5px) rotate(0deg);
+}
+
+.wanted-poster-elite {
+  box-shadow:
+    0 0 0 1px rgba(242, 193, 78, 0.42),
+    0 0 36px rgba(242, 193, 78, 0.3),
+    0 28px 64px rgba(0, 0, 0, 0.62),
+    inset 0 0 42px rgba(98, 17, 12, 0.48);
+}
+
+.poster-portrait {
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 4px solid rgba(29, 18, 9, 0.88);
+  border-radius: 5px;
+  background:
+    linear-gradient(45deg, rgba(29, 18, 9, 0.2) 25%, transparent 25% 50%, rgba(29, 18, 9, 0.2) 50% 75%, transparent 75%),
+    #a87337;
+  background-size: 24px 24px;
+  filter: sepia(0.22) contrast(1.05);
+}
+
+.bounty-text {
+  display: block;
+  color: #7a130d;
+  font-weight: 950;
+  line-height: 0.95;
+  text-shadow: 0 1px 0 rgba(255, 231, 170, 0.3);
+}
+
+.poster-button,
+.dark-button,
+.blood-button {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  padding: 0.7rem 1.2rem;
+  font-weight: 950;
+  text-transform: uppercase;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.poster-button {
+  border: 2px solid #1d1209;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(255, 244, 199, 0.8), transparent 35%),
+    linear-gradient(135deg, #efd18b, #c89545);
+  color: #1d1209;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.38);
+}
+
+.dark-button {
+  border: 1px solid rgba(242, 193, 78, 0.55);
+  background: rgba(8, 6, 5, 0.82);
+  color: #f7d78a;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+}
+
+.blood-button {
+  border: 1px solid rgba(248, 113, 113, 0.52);
+  background: linear-gradient(135deg, #5f120d, #1d0705);
+  color: #fee2e2;
+}
+
+.poster-button:hover,
+.dark-button:hover,
+.blood-button:hover {
+  transform: translateY(-2px);
+}
+
+.poster-button:disabled,
+.dark-button:disabled,
+.blood-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+.board-motif {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid rgba(242, 193, 78, 0.18);
+  border-radius: 12px;
+  opacity: 0.28;
+}
+
+.board-motif span {
+  aspect-ratio: 1;
+  background: rgba(242, 193, 78, 0.13);
+}
+
+.board-motif span:nth-child(odd) {
+  background: rgba(88, 20, 14, 0.34);
+}
+
+.game-board-frame {
+  border: 10px solid #2a170b;
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(242, 193, 78, 0.16), transparent 28%),
+    linear-gradient(90deg, #2b1609, #4b2a13, #211009);
+  box-shadow:
+    0 35px 90px rgba(0, 0, 0, 0.62),
+    inset 0 0 24px rgba(255, 212, 117, 0.18);
+}
+
+.game-square-dark {
+  background:
+    radial-gradient(circle at 35% 25%, rgba(242, 193, 78, 0.12), transparent 38%),
+    linear-gradient(135deg, #4a2612, #271107);
+}
+
+.game-square-light {
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255, 241, 196, 0.32), transparent 45%),
+    linear-gradient(135deg, #c69a56, #7a4a22);
 }

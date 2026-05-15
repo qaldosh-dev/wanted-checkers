@@ -138,8 +138,11 @@ function countPlayerPieces(board, playerId) {
 
 function toResultPlayer(stats, bounty, currentWinStreak, wins, losses) {
   return {
-    playerId: stats.playerId,
+    userId: stats.userId,
+    username: stats.username,
     displayName: stats.displayName,
+    city: stats.city,
+    avatarUrl: stats.avatarUrl,
     bounty,
     wins,
     losses,

@@ -4,3 +4,5 @@ node_modules
 coverage
 dist
 npm-debug.log*
+uploads/avatars/*
+!uploads/avatars/.gitkeep

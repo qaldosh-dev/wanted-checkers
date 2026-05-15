@@ -1,4 +1,5 @@
 import "./globals.css";
+import { AuthProvider } from "./auth-context";
 
 export const metadata = {
   title: "WANTED CHECKERS",
@@ -8,7 +9,9 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }

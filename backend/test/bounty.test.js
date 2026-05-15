@@ -15,10 +15,11 @@ function emptyBoard() {
   return Array(32).fill(EMPTY);
 }
 
-function stats(playerId, overrides = {}) {
+function stats(playerNumber, overrides = {}) {
   return {
-    playerId,
-    displayName: `Player ${playerId}`,
+    userId: `00000000-0000-0000-0000-00000000000${playerNumber}`,
+    username: `player${playerNumber}`,
+    displayName: `Player ${playerNumber}`,
     bounty: 0,
     wins: 0,
     losses: 0,
