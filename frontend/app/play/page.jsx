@@ -25,10 +25,13 @@ export default function Home() {
   const [sessionId, setSessionId] = useState("");
   const [game, setGame] = useState(null);
   const [players, setPlayers] = useState([]);
+  const [gameMode, setGameMode] = useState("local_pvp");
+  const [aiDifficulty, setAiDifficulty] = useState("beginner");
   const [opponentUserId, setOpponentUserId] = useState("local");
   const [selected, setSelected] = useState(null);
   const [moves, setMoves] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAiThinking, setIsAiThinking] = useState(false);
   const [error, setError] = useState("");
 
   const moveTargets = useMemo(() => new Set(moves.map((move) => move.to)), [moves]);
@@ -64,7 +67,9 @@ export default function Home() {
         headers: { "Content-Type": "application/json", ...auth.authHeaders() },
         body: JSON.stringify({
           sessionId: storedSessionId || undefined,
-          opponentUserId: opponentUserId === "local" ? undefined : opponentUserId
+          opponentUserId: gameMode === "local_pvp" && opponentUserId !== "local" ? opponentUserId : undefined,
+          mode: gameMode,
+          aiDifficulty: gameMode === "vs_ai" ? aiDifficulty : undefined
         })
       });
 
@@ -78,7 +83,7 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [auth, opponentUserId]);
+  }, [auth, opponentUserId, gameMode, aiDifficulty]);
 
   useEffect(() => {
     if (auth.isAuthLoading || !auth.isAuthenticated) return;
@@ -97,7 +102,7 @@ export default function Home() {
   }, [game?.gameId, refreshGame]);
 
   async function selectSquare(playableIndex) {
-    if (!game || game.status !== "ongoing") return;
+    if (!game || game.status !== "ongoing" || isAiThinking) return;
 
     if (selected !== null && moveTargets.has(playableIndex)) {
       await submitMove(selected, playableIndex);
@@ -130,6 +135,7 @@ export default function Home() {
     if (!game) return;
 
     setIsLoading(true);
+    setIsAiThinking(game.mode === "vs_ai" && game.currentTurn === 1);
     setError("");
 
     try {
@@ -150,6 +156,7 @@ export default function Home() {
       await refreshGame(game.gameId);
     } finally {
       setIsLoading(false);
+      setIsAiThinking(false);
     }
   }
 
@@ -187,6 +194,11 @@ export default function Home() {
 
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <StatusPill game={game} />
+            {isAiThinking ? (
+              <div className="flex min-h-11 items-center rounded-md border border-red-700/60 bg-red-950/70 px-4 font-black uppercase text-red-100 shadow-lg shadow-black/30">
+                AI thinking
+              </div>
+            ) : null}
             <CinematicButton href="/profile" variant="dark">Profile</CinematicButton>
             <CinematicButton href="/wanted-board" variant="dark">Wanted Board</CinematicButton>
             <CinematicButton onClick={auth.logout} variant="red">
@@ -205,20 +217,46 @@ export default function Home() {
               selected={selected}
               moveTargets={moveTargets}
               onSquareClick={selectSquare}
-              disabled={!game || isLoading}
+              disabled={!game || isLoading || isAiThinking}
             />
           </div>
 
           <PosterPanel className="space-y-4 p-5">
             <InfoRow label="Signed in" value={auth.user?.username ?? "Loading"} />
             <label className="block border-b border-stone-950/30 pb-3 text-sm">
+              <span className="font-black uppercase text-stone-800">Game Mode</span>
+              <select
+                value={gameMode}
+                onChange={(event) => setGameMode(event.target.value)}
+                className="mt-2 h-10 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-black text-stone-950 outline-none focus:border-red-900"
+              >
+                <option value="local_pvp">Local PvP</option>
+                <option value="vs_ai">vs AI</option>
+              </select>
+            </label>
+            {gameMode === "vs_ai" ? (
+              <label className="block border-b border-stone-950/30 pb-3 text-sm">
+                <span className="font-black uppercase text-stone-800">AI Difficulty</span>
+                <select
+                  value={aiDifficulty}
+                  onChange={(event) => setAiDifficulty(event.target.value)}
+                  className="mt-2 h-10 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-black text-stone-950 outline-none focus:border-red-900"
+                >
+                  <option value="beginner">Beginner</option>
+                  <option value="intermediate">Intermediate</option>
+                  <option value="expert">Expert</option>
+                </select>
+              </label>
+            ) : null}
+            <label className="block border-b border-stone-950/30 pb-3 text-sm">
               <span className="font-black uppercase text-stone-800">Opponent</span>
               <select
                 value={opponentUserId}
                 onChange={(event) => setOpponentUserId(event.target.value)}
+                disabled={gameMode === "vs_ai"}
                 className="mt-2 h-10 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-black text-stone-950 outline-none focus:border-red-900"
               >
-                <option value="local">Local Player 2</option>
+                <option value="local">{gameMode === "vs_ai" ? `AI - ${labelDifficulty(aiDifficulty)}` : "Local Player 2"}</option>
                 {players
                   .filter((player) => player.userId !== auth.user?.id)
                   .map((player) => (
@@ -229,6 +267,7 @@ export default function Home() {
               </select>
             </label>
             <InfoRow label="Game" value={game?.gameId ? shortId(game.gameId) : "Starting"} />
+            <InfoRow label="Mode" value={game ? modeLabel(game) : modeDraftLabel(gameMode, aiDifficulty)} />
             <InfoRow label="Session" value={sessionId ? shortId(sessionId) : "Local"} />
             <InfoRow label="Turn" value={game?.currentTurn ? turnLabel(game, auth.user?.username) : "Loading"} />
             <InfoRow label="Forced jump" value={game?.forcedFrom ?? "None"} />
@@ -404,5 +443,25 @@ function shortId(value) {
 
 function turnLabel(game, username) {
   if (game.currentTurn === 1) return `${username ?? "You"} as Player 1`;
+  if (game.mode === "vs_ai") return `AI - ${labelDifficulty(game.aiDifficulty)}`;
   return game.playerTwoUserId ? "Player 2" : "Local Player 2";
+}
+
+function modeLabel(game) {
+  if (game.mode === "vs_ai") return `vs AI - ${labelDifficulty(game.aiDifficulty)}`;
+  return "Local PvP";
+}
+
+function modeDraftLabel(gameMode, aiDifficulty) {
+  if (gameMode === "vs_ai") return `vs AI - ${labelDifficulty(aiDifficulty)}`;
+  return "Local PvP";
+}
+
+function labelDifficulty(difficulty) {
+  const labels = {
+    beginner: "Beginner",
+    intermediate: "Intermediate",
+    expert: "Expert"
+  };
+  return labels[difficulty] ?? "Beginner";
 }

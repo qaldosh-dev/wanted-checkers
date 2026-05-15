@@ -6,6 +6,7 @@ import {
 import { query, withTransaction } from "./db.js";
 import { updateGameRecord } from "./gameRepository.js";
 import {
+  findPlayerStatsByUserId,
   findPlayerStatsByUserIds,
   updatePlayerStats
 } from "./playerStatsRepository.js";
@@ -15,6 +16,25 @@ export async function completeMatchWithBounty(game, state, dependencies = {}) {
 
   if (state.status !== "finished" || !state.winner) {
     return persistGame(game.gameId, state);
+  }
+
+  if (game.mode === "vs_ai") {
+    if (state.winner === 1 && game.playerOneUserId) {
+      return completeHumanVsAiWin(game, state, persistGame);
+    }
+
+    const matchResult = buildLocalMatchResult(
+      state.winner,
+      "AI opponent game: bounty updates are only awarded when the human wins."
+    );
+    return persistGame(
+      game.gameId,
+      {
+        ...state,
+        matchResult
+      },
+      { matchResult }
+    );
   }
 
   if (!game.playerOneUserId || !game.playerTwoUserId) {
@@ -66,7 +86,50 @@ export async function completeMatchWithBounty(game, state, dependencies = {}) {
   });
 }
 
-function buildLocalMatchResult(winner) {
+async function completeHumanVsAiWin(game, state, persistGame) {
+  return withTransaction(async (client) => {
+    const winnerStats = await findPlayerStatsByUserId(game.playerOneUserId, { client });
+    if (!winnerStats) throw new Error("Player stats are missing for AI match finalization.");
+
+    const aiStats = {
+      userId: null,
+      username: "ai_opponent",
+      displayName: `AI ${game.aiDifficulty ?? "beginner"}`,
+      city: "Clockwork Cove",
+      avatarUrl: null,
+      bounty: 0,
+      wins: 0,
+      losses: 0,
+      currentWinStreak: 0,
+      bestWinStreak: 0,
+      tier: "Unknown"
+    };
+    const matchResult = {
+      ...calculateBountyResult({
+        board: state.board,
+        winner: 1,
+        winnerStats,
+        loserStats: aiStats
+      }),
+      aiMatch: true,
+      aiDifficulty: game.aiDifficulty ?? "beginner"
+    };
+
+    await updatePlayerStats(buildUpdatedWinnerStats(winnerStats, matchResult), { client });
+    await createMatchRecord(game.gameId, game.playerOneUserId, null, matchResult, { client });
+
+    return persistGame(
+      game.gameId,
+      {
+        ...state,
+        matchResult
+      },
+      { client, matchResult }
+    );
+  });
+}
+
+function buildLocalMatchResult(winner, message = "Local Player 2 game: bounty updates are disabled until real matchmaking is added.") {
   return {
     winner,
     loser: winner === 1 ? 2 : 1,
@@ -79,7 +142,7 @@ function buildLocalMatchResult(winner) {
     streakMultiplier: 1,
     bonusesApplied: [],
     localOnly: true,
-    message: "Local Player 2 game: bounty updates are disabled until real matchmaking is added."
+    message
   };
 }
 

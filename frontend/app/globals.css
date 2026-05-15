@@ -103,6 +103,29 @@ button {
   transition: transform 180ms ease, box-shadow 180ms ease;
 }
 
+.bounty-poster {
+  min-height: 100%;
+  padding: 1.25rem;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 246, 204, 0.72), transparent 24%),
+    radial-gradient(circle at 0% 100%, rgba(80, 24, 9, 0.24), transparent 30%),
+    radial-gradient(circle at 100% 100%, rgba(80, 24, 9, 0.28), transparent 28%),
+    linear-gradient(180deg, #e7ce98 0%, #d2aa65 46%, #a87337 100%);
+}
+
+.bounty-poster::after {
+  position: absolute;
+  inset: 8px;
+  z-index: 0;
+  pointer-events: none;
+  border: 2px solid rgba(29, 18, 9, 0.34);
+  border-radius: 7px;
+  content: "";
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 236, 170, 0.18),
+    inset 0 0 34px rgba(29, 18, 9, 0.18);
+}
+
 .wanted-poster:nth-child(even) {
   --poster-tilt: 0.8deg;
 }
@@ -131,12 +154,70 @@ button {
   filter: sepia(0.22) contrast(1.05);
 }
 
+.poster-portrait-large {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-width: 5px;
+  box-shadow:
+    0 12px 24px rgba(29, 18, 9, 0.34),
+    inset 0 0 22px rgba(0, 0, 0, 0.22);
+}
+
+.poster-portrait-large::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(180deg, rgba(255, 243, 198, 0.08), transparent 40%),
+    radial-gradient(circle at 50% 50%, transparent 52%, rgba(29, 18, 9, 0.28) 100%);
+}
+
+.wanted-title,
+.dead-or-alive,
+.poster-name,
+.bounty-symbol {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.wanted-title {
+  line-height: 0.84;
+  text-shadow:
+    0 2px 0 rgba(255, 233, 170, 0.22),
+    0 5px 8px rgba(29, 18, 9, 0.2);
+}
+
+.dead-or-alive {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.dead-or-alive::before,
+.dead-or-alive::after {
+  display: block;
+  width: 1.6rem;
+  height: 2px;
+  background: rgba(29, 18, 9, 0.56);
+  content: "";
+}
+
+.poster-name {
+  line-height: 0.95;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 0 rgba(255, 233, 170, 0.3);
+}
+
 .bounty-text {
   display: block;
   color: #7a130d;
   font-weight: 950;
   line-height: 0.95;
-  text-shadow: 0 1px 0 rgba(255, 231, 170, 0.3);
+  letter-spacing: 0;
+  text-shadow:
+    0 1px 0 rgba(255, 231, 170, 0.3),
+    0 4px 12px rgba(29, 18, 9, 0.12);
 }
 
 .poster-button,

@@ -107,32 +107,48 @@ export function BountyAmount({ value, prefix = "", className = "" }) {
 export function WantedPosterCard({ player, rank, compact = false }) {
   const tier = player?.tier ?? "Unknown";
   const strongTier = ["Dangerous", "Notorious", "Warlord", "Emperor"].includes(tier);
+  const username = player?.username ?? "Unknown";
 
   return (
-    <article className={`wanted-poster ${strongTier ? "wanted-poster-elite" : ""}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-black uppercase text-stone-700">Rank #{rank}</p>
-          <h2 className={`${compact ? "text-2xl" : "text-3xl"} mt-1 font-black uppercase tracking-normal text-stone-950`}>
-            {player?.username ?? "Unknown"}
-          </h2>
-          <p className="mt-1 text-sm font-bold text-stone-800">{player?.city || "Unknown Waters"}</p>
-        </div>
-        <TierBadge tier={tier} />
+    <article className={`wanted-poster bounty-poster ${strongTier ? "wanted-poster-elite" : ""}`}>
+      <div className="absolute right-4 top-4 z-20">
+        <TierBadge tier={tier} className="rotate-2 opacity-90" />
       </div>
 
-      <div className="poster-portrait my-4">
+      <div className="text-center">
+        <p className="text-[10px] font-black uppercase text-stone-700">Bounty Notice #{rank}</p>
+        <h2 className={`${compact ? "text-5xl" : "text-6xl sm:text-7xl"} wanted-title font-black uppercase tracking-normal text-stone-950`}>
+          WANTED
+        </h2>
+      </div>
+
+      <div className={`poster-portrait poster-portrait-large ${compact ? "my-3" : "my-5"}`}>
         <img
-          src={toAvatarSrc(player?.avatarUrl) || buildAvatarUrl(player?.username ?? "wanted")}
+          src={toAvatarSrc(player?.avatarUrl) || buildAvatarUrl(username)}
           alt=""
           className="h-full w-full object-cover"
         />
       </div>
 
-      <p className="text-sm font-black uppercase text-stone-800">Bounty</p>
-      <BountyAmount value={player?.bounty ?? 0} className={compact ? "text-2xl" : "text-4xl"} />
+      <div className="text-center">
+        <p className={`${compact ? "text-lg" : "text-2xl"} dead-or-alive font-black uppercase text-stone-800`}>
+          Dead Or Alive
+        </p>
+        <h3 className={`${compact ? "text-2xl" : "text-4xl"} poster-name mt-1 font-black uppercase tracking-normal text-stone-950`}>
+          {username}
+        </h3>
+        <p className="mt-1 text-xs font-black uppercase text-stone-700">{player?.city || "Unknown Waters"}</p>
+      </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+      <div className={`${compact ? "mt-3" : "mt-5"} text-center`}>
+        <p className="text-xs font-black uppercase text-stone-700">Bounty</p>
+        <div className="flex items-baseline justify-center gap-2">
+          <span className={`${compact ? "text-2xl" : "text-4xl"} bounty-symbol font-black text-stone-950`}>฿</span>
+          <BountyAmount value={player?.bounty ?? 0} className={compact ? "text-3xl" : "text-5xl"} />
+        </div>
+      </div>
+
+      <div className={`${compact ? "mt-3" : "mt-5"} grid grid-cols-3 gap-2 text-center`}>
         <PosterStat label="Wins" value={player?.wins ?? 0} />
         <PosterStat label="Losses" value={player?.losses ?? 0} />
         <PosterStat label="Streak" value={player?.currentWinStreak ?? 0} />

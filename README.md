@@ -101,6 +101,10 @@ played locally on the same board unless a real opponent is selected later.
 Local Player 2 matches intentionally do not update bounty yet; the result
 payload marks these as `localOnly`.
 
+The `/play` page also supports built-in `vs AI` mode. The AI runs locally in the
+Express backend with Beginner, Intermediate, and Expert difficulty. No external
+AI APIs are used.
+
 ## Avatars
 
 Registration and profile edit support local avatar uploads for JPG, PNG, and

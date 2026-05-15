@@ -9,9 +9,11 @@ export async function createGameRecord(state, players = {}) {
        status,
        winner,
        player_one_user_id,
-       player_two_user_id
+       player_two_user_id,
+       mode,
+       ai_difficulty
      )
-     VALUES ($1::jsonb, $2, $3, $4, $5, $6, $7)
+     VALUES ($1::jsonb, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id,
                board,
                current_turn,
@@ -20,6 +22,8 @@ export async function createGameRecord(state, players = {}) {
                winner,
                player_one_user_id,
                player_two_user_id,
+               mode,
+               ai_difficulty,
                match_result,
                created_at`,
     [
@@ -29,7 +33,9 @@ export async function createGameRecord(state, players = {}) {
       state.status,
       state.winner,
       players.playerOneUserId,
-      players.playerTwoUserId
+      players.playerTwoUserId,
+      players.mode ?? "local_pvp",
+      players.aiDifficulty ?? null
     ]
   );
 
@@ -46,6 +52,8 @@ export async function findGameRecord(gameId) {
             winner,
             player_one_user_id,
             player_two_user_id,
+            mode,
+            ai_difficulty,
             match_result,
             created_at
      FROM games
@@ -77,6 +85,8 @@ export async function updateGameRecord(gameId, state, options = {}) {
                winner,
                player_one_user_id,
                player_two_user_id,
+               mode,
+               ai_difficulty,
                match_result,
                created_at`,
     [
@@ -104,6 +114,8 @@ export function mapGameRow(row) {
     winner: row.winner,
     playerOneUserId: row.player_one_user_id,
     playerTwoUserId: row.player_two_user_id,
+    mode: row.mode ?? "local_pvp",
+    aiDifficulty: row.ai_difficulty,
     matchResult: row.match_result,
     createdAt: row.created_at
   };

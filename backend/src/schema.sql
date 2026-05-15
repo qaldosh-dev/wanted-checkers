@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS games (
   winner INTEGER,
   player_one_user_id UUID REFERENCES users(id),
   player_two_user_id UUID REFERENCES users(id),
+  mode VARCHAR(30) DEFAULT 'local_pvp',
+  ai_difficulty VARCHAR(30),
   match_result JSONB,
   created_at TIMESTAMP DEFAULT NOW()
 );
@@ -88,6 +90,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
 ALTER TABLE games ADD COLUMN IF NOT EXISTS forced_from INTEGER;
 ALTER TABLE games ADD COLUMN IF NOT EXISTS player_one_user_id UUID REFERENCES users(id);
 ALTER TABLE games ADD COLUMN IF NOT EXISTS player_two_user_id UUID REFERENCES users(id);
+ALTER TABLE games ADD COLUMN IF NOT EXISTS mode VARCHAR(30) DEFAULT 'local_pvp';
+ALTER TABLE games ADD COLUMN IF NOT EXISTS ai_difficulty VARCHAR(30);
 ALTER TABLE games ADD COLUMN IF NOT EXISTS match_result JSONB;
 
 CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON users (LOWER(username));
