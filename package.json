@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "node backend/src/server.js",
     "dev": "node scripts/dev.mjs",
     "dev:backend": "node backend/src/server.js",
     "dev:frontend": "next dev frontend",
