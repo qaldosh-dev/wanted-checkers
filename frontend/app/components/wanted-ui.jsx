@@ -105,12 +105,19 @@ export function WantedPosterCard({ player, rank, compact = false }) {
   const tier = player?.tier ?? "Unknown";
   const strongTier = ["Dangerous", "Notorious", "Warlord", "Emperor"].includes(tier);
   const username = player?.username ?? "Unknown";
+  const isNationalChampion = Boolean(player?.isNationalChampion);
+  const isRegionalChampion = Boolean(player?.isRegionalChampion);
 
   return (
-    <article className={`wanted-poster bounty-poster ${strongTier ? "wanted-poster-elite" : ""}`}>
+    <article className={`wanted-poster bounty-poster ${strongTier ? "wanted-poster-elite" : ""} ${isRegionalChampion ? "wanted-poster-regional" : ""} ${isNationalChampion ? "wanted-poster-national" : ""}`}>
       <div className="absolute right-4 top-4 z-20">
         <TierBadge tier={tier} className="rotate-2 opacity-90" />
       </div>
+      {player?.prestigeLabel ? (
+        <div className="absolute left-4 top-4 z-20 max-w-[58%] rotate-[-2deg] rounded-md border border-red-950 bg-amber-300/80 px-2 py-1 text-[10px] font-black uppercase text-stone-950 shadow-lg">
+          {player.prestigeLabel}
+        </div>
+      ) : null}
 
       <div className="text-center">
         <p className="text-[10px] font-black uppercase text-stone-700">Bounty Notice #{rank}</p>
@@ -134,7 +141,7 @@ export function WantedPosterCard({ player, rank, compact = false }) {
         <h3 className={`${compact ? "text-2xl" : "text-4xl"} poster-name mt-1 font-black uppercase tracking-normal text-stone-950`}>
           {username}
         </h3>
-        <p className="mt-1 text-xs font-black uppercase text-stone-700">{player?.city || "Unknown Waters"}</p>
+        <p className="mt-1 text-xs font-black uppercase text-stone-700">{player?.city || "Unclaimed Region"}</p>
       </div>
 
       <div className={`${compact ? "mt-3" : "mt-5"} text-center`}>

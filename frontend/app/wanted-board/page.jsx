@@ -8,19 +8,24 @@ import {
   WantedPosterCard
 } from "../components/wanted-ui";
 import { useAuth } from "../auth-context";
+import { KAZAKHSTAN_REGIONS } from "../constants/regions";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 export default function WantedBoardPage() {
   const auth = useAuth();
   const [players, setPlayers] = useState([]);
+  const [selectedRegion, setSelectedRegion] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function loadPlayers() {
+      setIsLoading(true);
+      setError("");
       try {
-        const response = await fetch(`${API_URL}/api/players/leaderboard`, { cache: "no-store" });
+        const regionQuery = selectedRegion ? `?region=${encodeURIComponent(selectedRegion)}` : "";
+        const response = await fetch(`${API_URL}/api/players/leaderboard${regionQuery}`, { cache: "no-store" });
         if (!response.ok) throw new Error("Could not load WANTED board.");
         const payload = await response.json();
         setPlayers(payload.players);
@@ -32,7 +37,7 @@ export default function WantedBoardPage() {
     }
 
     loadPlayers();
-  }, []);
+  }, [selectedRegion]);
 
   return (
     <PageBackground>
@@ -44,11 +49,26 @@ export default function WantedBoardPage() {
             <h1 className="mt-2 text-5xl font-black uppercase tracking-normal text-amber-100 sm:text-7xl">
               WANTED Board
             </h1>
+            <p className="mt-2 text-lg font-semibold text-stone-300">
+              {selectedRegion ? `Top Wanted of ${selectedRegion}` : "Top Wanted of Kazakhstan"}
+            </p>
           </div>
 
-          <a href="/play" className="dark-button w-fit">
-            Back to Arena
-          </a>
+          <div className="flex flex-col gap-3 sm:min-w-[280px]">
+            <select
+              value={selectedRegion}
+              onChange={(event) => setSelectedRegion(event.target.value)}
+              className="h-11 rounded-md border border-amber-700/50 bg-black/70 px-3 font-black uppercase text-amber-100 outline-none focus:border-amber-300"
+            >
+              <option value="">Global - Kazakhstan</option>
+              {KAZAKHSTAN_REGIONS.map((region) => (
+                <option key={region} value={region}>{region}</option>
+              ))}
+            </select>
+            <a href="/play" className="dark-button w-fit sm:self-end">
+              Back to Arena
+            </a>
+          </div>
         </header>
 
         {error ? <p className="mb-6 rounded-md bg-red-950/80 px-3 py-2 text-sm text-red-100">{error}</p> : null}

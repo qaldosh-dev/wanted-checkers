@@ -65,6 +65,8 @@ the login page shows a disabled `Google login is not configured` button.
 
    ```bash
    GOOGLE_CLIENT_ID=your-google-client-id
+   GROK_API_KEY=optional-grok-api-key
+   GROK_MODEL=grok-2-latest
    ```
 
 No `GOOGLE_CLIENT_SECRET` or redirect URI is required for this ID-token flow.
@@ -84,8 +86,11 @@ client.
 - `GET /api/auth/me`
 - `PUT /api/auth/profile`
 - `GET /api/players/leaderboard` for the MVP WANTED board
+- `GET /api/players/leaderboard?region=Almaty` for regional WANTED boards
+- `GET /api/players/rank/me` for national and regional rank badges
 - `GET /api/matches/recent` for the signed-in user's last 3 matches
 - `GET /api/matches/:id/replay` for authorized replay snapshots
+- `POST /api/matches/:id/analysis` for cached AI Coach analysis
 
 Board state is a 32-element array of playable dark squares.
 
@@ -113,9 +118,22 @@ Players can also search by username and send direct challenge invites. Challenge
 are in-memory MVP invites, expire after a short timeout, and create the same live
 multiplayer game room when accepted.
 
+Players select a structured Kazakhstan region during onboarding and profile
+editing. The existing `users.city` column stores only approved region values for
+compatibility. The WANTED Board can show Kazakhstan-wide rankings or a regional
+leaderboard; regional #1 players receive champion styling, and the global #1 is
+marked as Kazakhstan's Most Wanted.
+
 Completed games store snapshot-rich `move_history` entries for replay. The
 profile page shows the latest matches and `/replay/:id` lets a participant step
 through the match or auto-play it one move per second.
+
+The replay page includes an MVP AI Coach. The backend always performs local
+heuristic analysis first, caches the result per user and match, and can
+optionally use Grok only to rewrite those local findings into natural coaching
+language when `GROK_API_KEY` is configured. Free users are limited to 3 new
+analyses per day; the Pro upgrade prompt is presentation-only and has no billing
+backend.
 
 The `/play` page includes a lightweight friends system. Authenticated users can
 send, accept, and decline friend requests, view their friends list with live

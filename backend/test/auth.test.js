@@ -17,23 +17,23 @@ test("onboarding validation accepts Google profile setup payload", () => {
   const { data, errors } = validateOnboardingPayload({
     onboardingToken: "token",
     username: "straw_hat",
-    city: "Foosha"
+    city: "Almaty"
   });
 
   assert.equal(hasValidationErrors(errors), false);
   assert.equal(data.username, "straw_hat");
 });
 
-test("onboarding validation rejects invalid usernames", () => {
+test("onboarding validation rejects invalid usernames and unsupported regions", () => {
   const { errors } = validateOnboardingPayload({
     onboardingToken: "",
     username: "!!",
-    city: "x".repeat(121)
+    city: "Foosha"
   });
 
   assert.equal(errors.onboardingToken, "Google onboarding session is required.");
   assert.equal(errors.username.includes("Username must be"), true);
-  assert.equal(errors.city, "City must be 120 characters or fewer.");
+  assert.equal(errors.city, "Select a valid Kazakhstan region.");
 });
 
 test("username availability validation normalizes valid usernames", () => {

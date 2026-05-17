@@ -1,3 +1,5 @@
+import { isValidKazakhstanRegion } from "../regions/kazakhstanRegions.js";
+
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,24}$/;
 
 export function validateOnboardingPayload(payload) {
@@ -13,7 +15,7 @@ export function validateOnboardingPayload(payload) {
   if (!isValidUsername(data.username)) {
     errors.username = usernameValidationMessage();
   }
-  if (data.city.length > 120) errors.city = "City must be 120 characters or fewer.";
+  if (!isValidKazakhstanRegion(data.city)) errors.city = "Select a valid Kazakhstan region.";
   if (data.avatarUrl.length > 500) errors.avatarUrl = "Avatar URL must be 500 characters or fewer.";
 
   return { data, errors };
@@ -38,7 +40,7 @@ export function validateProfileUpdatePayload(payload) {
 
   if (data.firstName.length < 1 || data.firstName.length > 80) errors.firstName = "First name is required.";
   if (data.lastName.length < 1 || data.lastName.length > 80) errors.lastName = "Last name is required.";
-  if (data.city.length > 120) errors.city = "City must be 120 characters or fewer.";
+  if (!isValidKazakhstanRegion(data.city)) errors.city = "Select a valid Kazakhstan region.";
   if (data.avatarUrl.length > 500) errors.avatarUrl = "Avatar URL must be 500 characters or fewer.";
 
   return { data, errors };

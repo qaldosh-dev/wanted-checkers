@@ -13,6 +13,7 @@ import {
   TierBadge,
   formatBounty
 } from "../components/wanted-ui";
+import { KAZAKHSTAN_REGIONS } from "../constants/regions";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -31,6 +32,7 @@ export default function ProfilePage() {
   const [avatarPreview, setAvatarPreview] = useState("");
   const [recentMatches, setRecentMatches] = useState([]);
   const [matchesError, setMatchesError] = useState("");
+  const [ranking, setRanking] = useState(null);
 
   useEffect(() => {
     if (!auth.isAuthLoading && !auth.isAuthenticated) router.push("/login");
@@ -50,10 +52,19 @@ export default function ProfilePage() {
 
     async function loadRecentMatches() {
       try {
-        const response = await fetch(`${API_URL}/api/matches/recent`, {
-          headers: auth.authHeaders(),
-          cache: "no-store"
-        });
+        const [matchesResponse, rankingResponse] = await Promise.all([
+          fetch(`${API_URL}/api/matches/recent`, {
+            headers: auth.authHeaders(),
+            cache: "no-store"
+          }),
+          fetch(`${API_URL}/api/players/rank/me`, {
+            headers: auth.authHeaders(),
+            cache: "no-store"
+          })
+        ]);
+        const rankingPayload = await rankingResponse.json();
+        if (rankingResponse.ok) setRanking(rankingPayload.ranking);
+        const response = matchesResponse;
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error ?? "Could not load recent matches.");
         setRecentMatches(payload.matches);
@@ -158,18 +169,25 @@ export default function ProfilePage() {
               className="my-4 aspect-square w-full rounded-md border-4 border-stone-950 object-cover"
             />
             <h2 className="text-4xl font-black uppercase tracking-normal text-stone-950">{auth.user.username}</h2>
-            <p className="mt-1 font-bold text-stone-800">{auth.user.city || "Unknown Waters"}</p>
+            <p className="mt-1 font-bold text-stone-800">{auth.user.city || "Unclaimed Region"}</p>
+            {ranking?.prestigeLabel ? (
+              <p className="mt-3 rounded-md border border-amber-800 bg-amber-300/30 px-3 py-2 text-center text-xs font-black uppercase text-stone-950">
+                {ranking.prestigeLabel}
+              </p>
+            ) : null}
             <p className="mt-5 text-sm font-black uppercase text-stone-800">Bounty</p>
             <BountyAmount value={stats?.bounty ?? 0} className="text-4xl" />
             <div className="mt-3"><TierBadge tier={stats?.tier ?? "Unknown"} /></div>
           </article>
 
           <div className="space-y-6">
-            <PosterPanel className="grid gap-3 p-4 sm:grid-cols-4">
+            <PosterPanel className="grid gap-3 p-4 sm:grid-cols-3 xl:grid-cols-6">
               <PosterStat label="Wins" value={stats?.wins ?? 0} />
               <PosterStat label="Losses" value={stats?.losses ?? 0} />
               <PosterStat label="Win Streak" value={stats?.currentWinStreak ?? 0} />
               <PosterStat label="Best Streak" value={stats?.bestWinStreak ?? 0} />
+              <PosterStat label="KZ Rank" value={ranking?.nationalRank ? `#${ranking.nationalRank}` : "N/A"} />
+              <PosterStat label="Region Rank" value={ranking?.regionalRank ? `#${ranking.regionalRank}` : "N/A"} />
             </PosterPanel>
 
             <PosterPanel className="p-5">
@@ -190,7 +208,7 @@ export default function ProfilePage() {
                 <form onSubmit={saveProfile} className="mt-5 grid gap-4 sm:grid-cols-2">
                   <Field label="First Name" value={form.firstName} onChange={(value) => setForm({ ...form, firstName: value })} />
                   <Field label="Last Name" value={form.lastName} onChange={(value) => setForm({ ...form, lastName: value })} />
-                  <Field label="City" value={form.city} onChange={(value) => setForm({ ...form, city: value })} />
+                  <RegionField value={form.city} onChange={(value) => setForm({ ...form, city: value })} />
                   <AvatarField onChange={chooseAvatar} />
                   {error ? <p className="rounded-md bg-red-950/80 px-3 py-2 text-sm text-red-100 sm:col-span-2">{error}</p> : null}
                   <button type="submit" disabled={isLoading} className="poster-button sm:col-span-2 disabled:opacity-60">
@@ -302,6 +320,25 @@ function Field({ label, value, onChange }) {
         onChange={(event) => onChange(event.target.value)}
         className="mt-2 h-10 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-bold text-stone-950 outline-none transition focus:border-red-900"
       />
+    </label>
+  );
+}
+
+function RegionField({ value, onChange }) {
+  return (
+    <label className="block">
+      <span className="text-sm font-black uppercase text-stone-800">Region</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 h-10 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-bold text-stone-950 outline-none transition focus:border-red-900"
+        required
+      >
+        <option value="">Choose Kazakhstan region</option>
+        {KAZAKHSTAN_REGIONS.map((region) => (
+          <option key={region} value={region}>{region}</option>
+        ))}
+      </select>
     </label>
   );
 }

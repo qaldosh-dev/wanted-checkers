@@ -104,7 +104,7 @@ const fallbackPlayers = [
   {
     userId: "preview-1",
     username: "crown_rival",
-    city: "Iron Harbor",
+    city: "Almaty",
     bounty: 5_600_000,
     tier: "Rookie Threat",
     wins: 8,
@@ -114,7 +114,7 @@ const fallbackPlayers = [
   {
     userId: "preview-2",
     username: "diagonal_ace",
-    city: "Red Lantern Bay",
+    city: "Astana",
     bounty: 12_400_000,
     tier: "Rising Menace",
     wins: 15,
@@ -124,7 +124,7 @@ const fallbackPlayers = [
   {
     userId: "preview-3",
     username: "kingmaker",
-    city: "Black Dock",
+    city: "Shymkent",
     bounty: 51_000_000,
     tier: "Dangerous",
     wins: 32,

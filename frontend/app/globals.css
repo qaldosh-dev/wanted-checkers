@@ -142,6 +142,23 @@ button {
     inset 0 0 42px rgba(98, 17, 12, 0.48);
 }
 
+.wanted-poster-regional {
+  box-shadow:
+    0 0 0 1px rgba(242, 193, 78, 0.45),
+    0 0 28px rgba(242, 193, 78, 0.28),
+    0 28px 64px rgba(0, 0, 0, 0.58),
+    inset 0 0 32px rgba(242, 193, 78, 0.2);
+}
+
+.wanted-poster-national {
+  box-shadow:
+    0 0 0 2px rgba(250, 204, 21, 0.58),
+    0 0 48px rgba(250, 204, 21, 0.46),
+    0 0 22px rgba(185, 28, 28, 0.3),
+    0 32px 78px rgba(0, 0, 0, 0.68),
+    inset 0 0 46px rgba(255, 236, 163, 0.3);
+}
+
 .poster-portrait {
   aspect-ratio: 4 / 3;
   overflow: hidden;

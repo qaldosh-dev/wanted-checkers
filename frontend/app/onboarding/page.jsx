@@ -11,6 +11,7 @@ import {
   buildAvatarUrl,
   toAvatarSrc
 } from "../components/wanted-ui";
+import { KAZAKHSTAN_REGIONS } from "../constants/regions";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 const ONBOARDING_KEY = "wanted-checkers-onboarding";
@@ -195,11 +196,11 @@ export default function OnboardingPage() {
               onChange={(value) => update("username", value)}
             />
             <Field
-              label="City"
+              label="Select Your Region"
               value={form.city}
               error={fields.city}
               onChange={(value) => update("city", value)}
-              placeholder="Optional"
+              options={KAZAKHSTAN_REGIONS}
             />
             <Field
               label="Avatar URL"
@@ -235,16 +236,30 @@ export default function OnboardingPage() {
   );
 }
 
-function Field({ label, value, onChange, error, placeholder = "", className = "" }) {
+function Field({ label, value, onChange, error, placeholder = "", className = "", options = null }) {
   return (
     <label className={`block ${className}`}>
       <span className="text-sm font-black uppercase text-stone-800">{label}</span>
-      <input
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-2 h-11 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-bold text-stone-950 outline-none transition placeholder:text-stone-700 focus:border-red-900"
-      />
+      {options ? (
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="mt-2 h-11 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-bold text-stone-950 outline-none transition focus:border-red-900"
+          required
+        >
+          <option value="">Choose Kazakhstan region</option>
+          {options.map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </select>
+      ) : (
+        <input
+          value={value}
+          placeholder={placeholder}
+          onChange={(event) => onChange(event.target.value)}
+          className="mt-2 h-11 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-bold text-stone-950 outline-none transition placeholder:text-stone-700 focus:border-red-900"
+        />
+      )}
       {error ? <span className="mt-1 block text-xs font-bold text-red-900">{error}</span> : null}
     </label>
   );

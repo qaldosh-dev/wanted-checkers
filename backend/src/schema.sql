@@ -91,6 +91,15 @@ CREATE TABLE IF NOT EXISTS friendships (
   CONSTRAINT friendships_status_check CHECK (status IN ('pending', 'accepted', 'declined'))
 );
 
+CREATE TABLE IF NOT EXISTS ai_coach_analyses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  match_id UUID NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  analysis JSONB NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE (match_id, user_id)
+);
+
 ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(80);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(80);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(40);
@@ -126,6 +135,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS friendships_pair_idx
   ON friendships (LEAST(requester_user_id, addressee_user_id), GREATEST(requester_user_id, addressee_user_id));
 CREATE INDEX IF NOT EXISTS friendships_addressee_status_idx ON friendships (addressee_user_id, status);
 CREATE INDEX IF NOT EXISTS friendships_requester_status_idx ON friendships (requester_user_id, status);
+CREATE INDEX IF NOT EXISTS ai_coach_analyses_user_created_idx ON ai_coach_analyses (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS player_stats_bounty_idx ON player_stats (bounty DESC, wins DESC);
 CREATE INDEX IF NOT EXISTS games_player_one_idx ON games (player_one_user_id);
 CREATE INDEX IF NOT EXISTS games_player_two_idx ON games (player_two_user_id);
