@@ -1,4 +1,5 @@
 import { Server } from "socket.io";
+import { createCorsOptions } from "../config/cors.js";
 import { authenticateSocket } from "./socketAuth.js";
 import {
   joinQueue,
@@ -20,10 +21,13 @@ import {
 } from "./presenceService.js";
 
 export function attachSocketServer(httpServer) {
+  const corsOptions = createCorsOptions();
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.CLIENT_ORIGIN ?? "http://localhost:3000",
-      methods: ["GET", "POST"]
+      origin: corsOptions.origin,
+      methods: ["GET", "POST"],
+      allowedHeaders: corsOptions.allowedHeaders,
+      credentials: corsOptions.credentials
     }
   });
 

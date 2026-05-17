@@ -73,6 +73,82 @@ No `GOOGLE_CLIENT_SECRET` or redirect URI is required for this ID-token flow.
 For production, add your deployed frontend origin to the same Google OAuth
 client.
 
+## Deployment
+
+Current production targets:
+
+- Database: Neon PostgreSQL
+- Backend: Render at `https://wanted-checkers.onrender.com`
+- Frontend: Vercel at `https://wanted-checkers-1pco.vercel.app`
+
+### Neon PostgreSQL
+
+1. Create a Neon project and copy the pooled or direct PostgreSQL connection
+   string.
+2. Apply the schema from your machine or a migration job:
+
+   ```bash
+   psql "$DATABASE_URL" -f backend/src/schema.sql
+   ```
+
+3. Keep `DATABASE_URL` available to the Render backend. The schema enables
+   `pgcrypto`, so the connected database user must be allowed to create that
+   extension.
+
+### Render Backend
+
+Set these Render environment variables:
+
+```bash
+DATABASE_URL=postgres://...
+JWT_SECRET=use-a-long-random-production-secret
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+FRONTEND_URL=https://wanted-checkers-1pco.vercel.app
+GROK_API_KEY=optional-grok-api-key
+```
+
+`FRONTEND_URL` is the production browser origin allowed by both Express CORS and
+Socket.IO CORS. Local development at `http://localhost:3000` is always allowed.
+Vercel preview origins matching `https://*.vercel.app` are also allowed for API
+and Socket.IO requests. If you want to pin multiple production origins, separate
+them with commas:
+
+```bash
+FRONTEND_URL=https://wanted-checkers-1pco.vercel.app,https://another-domain.example
+```
+
+`CLIENT_ORIGIN` is still accepted as a legacy fallback, but new deployments
+should use `FRONTEND_URL`.
+
+### Vercel Frontend
+
+Set these Vercel environment variables:
+
+```bash
+NEXT_PUBLIC_API_URL=https://wanted-checkers.onrender.com
+NEXT_PUBLIC_SOCKET_URL=https://wanted-checkers.onrender.com
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+```
+
+`NEXT_PUBLIC_API_URL` is used for REST requests, including
+`/api/auth/google/status`. `NEXT_PUBLIC_SOCKET_URL` is used by Socket.IO. They
+can point to the same Render service.
+
+### Google OAuth Origins
+
+In the Google Cloud Console OAuth client, add authorized JavaScript origins for
+every frontend origin that should show the Google popup:
+
+```text
+http://localhost:3000
+https://wanted-checkers-1pco.vercel.app
+```
+
+For Vercel preview deployments, add each preview origin you intend to test.
+Google authorized JavaScript origins should be exact origins, not paths. This
+project uses the Google ID-token flow, so no `GOOGLE_CLIENT_SECRET` or redirect
+URI is required.
+
 ## API
 
 - `POST /api/game/start`

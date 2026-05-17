@@ -21,6 +21,7 @@ import {
 } from "../components/blindMode/visibilityEngine";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL ?? API_URL;
 const LIVE_GAME_MODES = ["multiplayer", "blitz", BLIND_HUNT_MODE];
 
 const PIECE_LABELS = {
@@ -221,7 +222,7 @@ export default function Home() {
   useEffect(() => {
     if (auth.isAuthLoading || !auth.token) return undefined;
 
-    const nextSocket = io(API_URL, {
+    const nextSocket = io(SOCKET_URL, {
       auth: { token: auth.token },
       transports: ["websocket", "polling"]
     });

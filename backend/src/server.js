@@ -3,6 +3,7 @@ import http from "node:http";
 import cors from "cors";
 import express from "express";
 import { authRouter } from "./routes/auth.js";
+import { createCorsOptions } from "./config/cors.js";
 import { gameRouter } from "./routes/game.js";
 import { playersRouter } from "./routes/players.js";
 import { usersRouter } from "./routes/users.js";
@@ -15,7 +16,7 @@ const app = express();
 const port = Number(process.env.PORT ?? 4000);
 const httpServer = http.createServer(app);
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN ?? "http://localhost:3000" }));
+app.use(cors(createCorsOptions()));
 app.use(express.json());
 app.use("/uploads", express.static("uploads"));
 

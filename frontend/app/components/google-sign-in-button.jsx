@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const PUBLIC_GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 
 export function GoogleSignInButton({ onSuccess, onError, className = "" }) {
   const [googleClientId, setGoogleClientId] = useState("");
@@ -17,8 +18,9 @@ export function GoogleSignInButton({ onSuccess, onError, className = "" }) {
       try {
         const response = await fetch(`${API_URL}/api/auth/google/status`, { cache: "no-store" });
         const payload = await response.json();
-        if (payload.enabled && payload.clientId) {
-          setGoogleClientId(payload.clientId);
+        const clientId = PUBLIC_GOOGLE_CLIENT_ID || payload.clientId;
+        if (payload.enabled && clientId) {
+          setGoogleClientId(clientId);
           setStatusMessage("");
         } else {
           setGoogleClientId("");
