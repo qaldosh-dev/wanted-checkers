@@ -8,8 +8,10 @@ import {
   BrandNav,
   CinematicButton,
   PageBackground,
+  PieceSkinSelector,
   PosterPanel,
   PosterStat,
+  ThemeSelector,
   TierBadge,
   formatBounty
 } from "../components/wanted-ui";
@@ -161,24 +163,26 @@ export default function ProfilePage() {
           </div>
         </header>
 
-        <section className="mt-8 grid gap-6 lg:grid-cols-[390px_1fr]">
-          <article className="wanted-poster">
-            <p className="text-sm font-black uppercase">Wanted</p>
+        <section className="mt-8 grid gap-6 lg:grid-cols-[340px_1fr] xl:grid-cols-[360px_1fr]">
+          <article className="wanted-poster profile-wanted-card">
+            <p className="text-sm font-black uppercase text-stone-800">Wanted</p>
             <img
               src={avatar}
               alt=""
-              className="my-4 aspect-square w-full rounded-md border-4 border-stone-950 object-cover"
+              className="profile-wanted-avatar my-3 aspect-square w-full rounded-md border-4 border-stone-950 object-cover"
             />
-            <h2 className="text-4xl font-black uppercase tracking-normal text-stone-950">{auth.user.username}</h2>
+            <h2 className="poster-name poster-name-fit profile-wanted-name font-black uppercase tracking-normal text-stone-950" title={auth.user.username}>
+              {compactPosterName(auth.user.username)}
+            </h2>
             <p className="mt-1 font-bold text-stone-800">{auth.user.city || "Unclaimed Region"}</p>
             {ranking?.prestigeLabel ? (
-              <p className="mt-3 rounded-md border border-amber-800 bg-amber-300/30 px-3 py-2 text-center text-xs font-black uppercase text-stone-950">
+              <p className="mt-2 rounded-md border border-amber-800 bg-amber-300/30 px-3 py-2 text-center text-xs font-black uppercase text-stone-950">
                 {ranking.prestigeLabel}
               </p>
             ) : null}
-            <p className="mt-5 text-sm font-black uppercase text-stone-800">Bounty</p>
-            <BountyAmount value={stats?.bounty ?? 0} className="text-4xl" />
-            <div className="mt-3"><TierBadge tier={stats?.tier ?? "Unknown"} /></div>
+            <p className="mt-3 text-sm font-black uppercase text-stone-800">Bounty</p>
+            <BountyAmount value={stats?.bounty ?? 0} className="profile-wanted-bounty" />
+            <div className="mt-2"><TierBadge tier={stats?.tier ?? "Unknown"} /></div>
           </article>
 
           <div className="space-y-6">
@@ -217,6 +221,14 @@ export default function ProfilePage() {
                   </button>
                 </form>
               ) : null}
+            </PosterPanel>
+
+            <PosterPanel className="p-5">
+              <ThemeSelector />
+            </PosterPanel>
+
+            <PosterPanel className="p-5">
+              <PieceSkinSelector avatarSrc={avatar} />
             </PosterPanel>
 
             <PosterPanel className="p-5">
@@ -312,6 +324,12 @@ function AvatarField({ onChange }) {
       <span className="mt-1 block text-xs font-semibold text-stone-700">JPG, PNG, or WebP. Max 2MB.</span>
     </label>
   );
+}
+
+function compactPosterName(value) {
+  const normalized = String(value ?? "Unknown").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (normalized.length <= 34) return normalized;
+  return `${normalized.slice(0, 31).trim()}...`;
 }
 
 function Field({ label, value, onChange }) {

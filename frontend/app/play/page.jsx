@@ -8,10 +8,11 @@ import {
   CinematicButton,
   PageBackground,
   PosterPanel,
-  TierBadge,
   buildAvatarUrl,
   formatBounty,
-  toAvatarSrc
+  toAvatarSrc,
+  useBodyScrollLock,
+  usePieceSkin
 } from "../components/wanted-ui";
 import { FogOverlay } from "../components/blindMode/fogRenderer";
 import {
@@ -137,7 +138,7 @@ function playResultChord(context, startTime, frequencies, gainValue, duration = 
 
 export default function Home() {
   const auth = useAuth();
-  const [sessionId, setSessionId] = useState("");
+  const [, setSessionId] = useState("");
   const [game, setGame] = useState(null);
   const [players, setPlayers] = useState([]);
   const [gameMode, setGameMode] = useState("local_pvp");
@@ -161,9 +162,19 @@ export default function Home() {
   const [friendRequests, setFriendRequests] = useState([]);
   const [friendsMessage, setFriendsMessage] = useState("");
   const [error, setError] = useState("");
+  const [drawOffer, setDrawOffer] = useState(null);
+  const [drawMessage, setDrawMessage] = useState("");
+  const [resignConfirmOpen, setResignConfirmOpen] = useState(false);
+  const [matchGuard, setMatchGuard] = useState(null);
   const [blitzState, setBlitzState] = useState(null);
+  const [resultOverlayOpen, setResultOverlayOpen] = useState(false);
+  const [resultMatchId, setResultMatchId] = useState("");
+  const [pieceSkin] = usePieceSkin();
   const gameAudio = useGameAudio();
   const previousGameRef = useRef(null);
+  const protectedActionRef = useRef(null);
+  const activeGameIdRef = useRef(null);
+  const playerNumberRef = useRef(null);
   const [pieceMotion, setPieceMotion] = useState({
     animations: {},
     promotions: {},
@@ -172,7 +183,16 @@ export default function Home() {
 
   const moveTargets = useMemo(() => new Set(moves.map((move) => move.to)), [moves]);
   const isLiveMode = LIVE_GAME_MODES.includes(gameMode) || isLiveGame(game);
+  const activeOnlineMatch = Boolean(
+    game?.gameId &&
+    isLiveGame(game) &&
+    game.status === "ongoing" &&
+    playerNumber &&
+    opponent?.id
+  );
   const isMyTurn = !game || !isLiveGame(game) || game.currentTurn === playerNumber;
+  const ownPlayerNumber = isLiveGame(game) && playerNumber ? playerNumber : 1;
+  const pieceAvatarSrc = toAvatarSrc(auth.user?.avatarUrl ?? "") || buildAvatarUrl(auth.user?.username ?? "wanted");
   const blindVisionPlayer = useMemo(
     () => getBlindVisionPlayer(game, gameMode, playerNumber),
     [game, gameMode, playerNumber]
@@ -181,6 +201,13 @@ export default function Home() {
     () => (blindVisionPlayer ? buildVisibleBoardSquares(game?.board ?? EMPTY_BOARD, blindVisionPlayer) : null),
     [blindVisionPlayer, game?.board]
   );
+
+  useBodyScrollLock(Boolean(matchGuard || resignConfirmOpen || drawOffer));
+
+  useEffect(() => {
+    activeGameIdRef.current = game?.gameId ?? null;
+    playerNumberRef.current = playerNumber;
+  }, [game?.gameId, playerNumber]);
 
   const refreshGame = useCallback(async (gameId) => {
     const response = await fetch(`${API_URL}/api/game/state/${gameId}`, { cache: "no-store" });
@@ -244,17 +271,15 @@ export default function Home() {
       setError("");
     });
     nextSocket.on("queue:left", () => setIsQueueing(false));
+    nextSocket.on("active_match:state", (payload) => {
+      if (!payload?.active) {
+        setMatchGuard(null);
+        return;
+      }
+      hydrateActiveMatch(payload);
+    });
     nextSocket.on("queue:matched", (payload) => {
-      const nextPlayerNumber = payload.game.playerOneUserId === auth.user?.id ? 1 : 2;
-      setPlayerNumber(nextPlayerNumber);
-      setOpponent(nextPlayerNumber === 1 ? payload.players.playerTwo : payload.players.playerOne);
-      setGameMode(liveDraftModeFromGame(payload.game.mode));
-      setIsQueueing(false);
-      setSelected(null);
-      setMoves([]);
-      setGame(payload.game);
-      setBlitzState(payload.game.blitzState ?? null);
-      setSessionId(payload.game.gameId);
+      hydrateActiveMatch(payload);
     });
     nextSocket.on("game:update", (payload) => {
       setGame(payload.game);
@@ -268,6 +293,7 @@ export default function Home() {
       setBlitzState(payload.game.blitzState ?? null);
       setSelected(null);
       setMoves([]);
+      setDrawOffer(null);
       setIsLoading(false);
     });
     nextSocket.on("timer:update", (payload) => {
@@ -283,6 +309,26 @@ export default function Home() {
     nextSocket.on("game:error", (payload) => {
       setError(payload.message ?? "Live multiplayer error.");
       setIsLoading(false);
+    });
+    nextSocket.on("draw:offered", (payload) => {
+      if (payload.gameId !== activeGameIdRef.current) return;
+      setDrawMessage("");
+      if (payload.offeredBy === playerNumberRef.current) {
+        setDrawMessage("Draw offer sent. Waiting for opponent.");
+        return;
+      }
+      setDrawOffer(payload);
+    });
+    nextSocket.on("draw:declined", (payload) => {
+      if (payload.gameId !== activeGameIdRef.current) return;
+      setDrawOffer(null);
+      setDrawMessage(`${payload.declinedByUsername ?? "Opponent"} declined the draw offer.`);
+    });
+    nextSocket.on("draw:accepted", (payload) => {
+      if (payload.gameId !== activeGameIdRef.current) return;
+      setDrawOffer(null);
+      setDrawMessage("Draw accepted.");
+      if (payload.game) setGame(payload.game);
     });
     nextSocket.on("challenge:received", (payload) => {
       setIncomingChallenge(payload.challenge);
@@ -327,9 +373,57 @@ export default function Home() {
     };
   }, [auth.isAuthLoading, auth.token, auth.user?.id, loadFriends]);
 
+  function requestProtectedAction(action, options = {}) {
+    if (!activeOnlineMatch) {
+      action();
+      return false;
+    }
+
+    protectedActionRef.current = action;
+    setMatchGuard({
+      title: options.title ?? "Active Online Match",
+      message: options.message ?? "Leaving this match will count as a resignation.",
+      detail: "You are currently in an active online game. Finish it or resign before starting another online session.",
+      resigning: false
+    });
+    return true;
+  }
+
+  function hydrateActiveMatch(payload) {
+    if (!payload?.game?.gameId || !payload?.players?.playerOne || !payload?.players?.playerTwo) return;
+    const nextPlayerNumber = payload.game.playerOneUserId === auth.user?.id ? 1 : 2;
+    const nextOpponent = nextPlayerNumber === 1 ? payload.players.playerTwo : payload.players.playerOne;
+
+    setPlayerNumber(nextPlayerNumber);
+    setOpponent(nextOpponent);
+    setGameMode(liveDraftModeFromGame(payload.game.mode));
+    setIsQueueing(false);
+    setSelected(null);
+    setMoves([]);
+    setError("");
+    setGame(payload.game);
+    setBlitzState(payload.game.blitzState ?? null);
+    setSessionId(payload.game.gameId);
+  }
+
   const startGame = useCallback(async () => {
     if (!auth.isAuthenticated) return;
     if (LIVE_GAME_MODES.includes(gameMode)) {
+      if (activeOnlineMatch) {
+        requestProtectedAction(() => {
+          setIsQueueing(true);
+          setError("");
+          setSelected(null);
+          setMoves([]);
+          setResultOverlayOpen(false);
+          setResultMatchId("");
+          socket?.emit(queueEventForMode(gameMode));
+        }, {
+          title: "Online Match In Progress",
+          message: "Starting another online match will resign your current game."
+        });
+        return;
+      }
       if (!socket?.connected) {
         setError("Live connection is not ready yet.");
         return;
@@ -338,6 +432,8 @@ export default function Home() {
       setError("");
       setSelected(null);
       setMoves([]);
+      setResultOverlayOpen(false);
+      setResultMatchId("");
       socket.emit(queueEventForMode(gameMode));
       return;
     }
@@ -346,6 +442,8 @@ export default function Home() {
     setError("");
     setSelected(null);
     setMoves([]);
+    setResultOverlayOpen(false);
+    setResultMatchId("");
 
     try {
       const storedSessionId = window.localStorage.getItem("wanted-checkers-session-id") ?? "";
@@ -370,7 +468,7 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [auth, opponentUserId, gameMode, aiDifficulty, socket]);
+  }, [auth, opponentUserId, gameMode, aiDifficulty, socket, activeOnlineMatch]);
 
   const leaveQueue = useCallback(() => {
     socket?.emit("queue:leave");
@@ -404,6 +502,17 @@ export default function Home() {
   }, [auth, playerSearch]);
 
   function sendChallenge(username) {
+    if (activeOnlineMatch) {
+      requestProtectedAction(() => {
+        setError("");
+        setChallengeMessage("");
+        socket?.emit("challenge:send", { username, mode: challengeModeForDraft(gameMode) });
+      }, {
+        title: "Duel Already Active",
+        message: "Sending a challenge will resign your current online match."
+      });
+      return;
+    }
     if (!socket?.connected) {
       setError("Live connection is not ready.");
       return;
@@ -454,6 +563,13 @@ export default function Home() {
 
   function acceptIncomingChallenge() {
     if (!incomingChallenge) return;
+    if (activeOnlineMatch) {
+      requestProtectedAction(() => socket?.emit("challenge:accept", { challengeId: incomingChallenge.id }), {
+        title: "Accept Challenge?",
+        message: "Accepting this challenge will resign your current online match."
+      });
+      return;
+    }
     socket?.emit("challenge:accept", { challengeId: incomingChallenge.id });
   }
 
@@ -461,6 +577,17 @@ export default function Home() {
     if (!incomingChallenge) return;
     socket?.emit("challenge:decline", { challengeId: incomingChallenge.id });
     setIncomingChallenge(null);
+  }
+
+  function changeGameMode(nextMode) {
+    if (activeOnlineMatch && LIVE_GAME_MODES.includes(nextMode) && nextMode !== gameMode) {
+      requestProtectedAction(() => setGameMode(nextMode), {
+        title: "Switch Online Mode?",
+        message: "Switching online modes will resign your current match."
+      });
+      return;
+    }
+    setGameMode(nextMode);
   }
 
   useEffect(() => {
@@ -529,6 +656,39 @@ export default function Home() {
 
     return () => window.clearTimeout(timeoutId);
   }, [pieceMotion.result]);
+
+  useEffect(() => {
+    if (!game || game.status === "ongoing") {
+      setResultOverlayOpen(false);
+      return;
+    }
+    setResultOverlayOpen(true);
+  }, [game?.gameId, game?.status]);
+
+  useEffect(() => {
+    if (!auth.isAuthenticated || !game?.gameId || game.status === "ongoing") return;
+
+    let cancelled = false;
+    async function loadResultMatchId() {
+      try {
+        const response = await fetch(`${API_URL}/api/matches/recent`, {
+          headers: auth.authHeaders(),
+          cache: "no-store"
+        });
+        const payload = await response.json();
+        if (!response.ok) return;
+        const match = payload.matches?.find((candidate) => candidate.gameId === game.gameId);
+        if (!cancelled && match?.matchId) setResultMatchId(match.matchId);
+      } catch {
+        // Replay actions stay disabled if the match id is not available yet.
+      }
+    }
+
+    loadResultMatchId();
+    return () => {
+      cancelled = true;
+    };
+  }, [auth, game?.gameId, game?.status]);
 
   async function selectSquare(playableIndex) {
     if (!game || game.status !== "ongoing" || isAiThinking) return;
@@ -604,6 +764,83 @@ export default function Home() {
     }
   }
 
+  function requestResign() {
+    if (!activeOnlineMatch) return;
+    setResignConfirmOpen(true);
+  }
+
+  function confirmResign() {
+    if (!activeOnlineMatch || !game?.gameId) return;
+    setResignConfirmOpen(false);
+    socket?.emit("game:resign", { gameId: game.gameId });
+  }
+
+  function confirmProtectedResign() {
+    if (!activeOnlineMatch || !game?.gameId) {
+      const action = protectedActionRef.current;
+      protectedActionRef.current = null;
+      setMatchGuard(null);
+      action?.();
+      return;
+    }
+    setMatchGuard((current) => current ? { ...current, resigning: true } : current);
+    socket?.emit("game:resign", { gameId: game.gameId });
+  }
+
+  function offerDraw() {
+    if (!activeOnlineMatch || !game?.gameId) return;
+    setDrawMessage("");
+    socket?.emit("draw:offer", { gameId: game.gameId });
+  }
+
+  function respondToDraw(accepted) {
+    if (!drawOffer || !game?.gameId) return;
+    socket?.emit("draw:respond", { gameId: game.gameId, accepted });
+    if (!accepted) setDrawOffer(null);
+  }
+
+  useEffect(() => {
+    if (!matchGuard?.resigning || activeOnlineMatch) return;
+    const action = protectedActionRef.current;
+    protectedActionRef.current = null;
+    setMatchGuard(null);
+    action?.();
+  }, [matchGuard?.resigning, activeOnlineMatch]);
+
+  useEffect(() => {
+    if (!activeOnlineMatch) return undefined;
+
+    function handleBeforeUnload(event) {
+      event.preventDefault();
+      event.returnValue = "Leaving this online match may count as a resignation.";
+      return event.returnValue;
+    }
+
+    function handleDocumentClick(event) {
+      const anchor = event.target.closest?.("a[href]");
+      if (!anchor) return;
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) return;
+      if (anchor.target === "_blank") return;
+
+      event.preventDefault();
+      requestProtectedAction(() => {
+        window.location.href = anchor.href;
+      }, {
+        title: "Leave Online Match?",
+        message: "Navigating away will resign your current online match."
+      });
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("click", handleDocumentClick, true);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("click", handleDocumentClick, true);
+    };
+  }, [activeOnlineMatch, game?.gameId]);
+
   if (!auth.isAuthLoading && !auth.isAuthenticated) {
     return (
       <PageBackground>
@@ -627,43 +864,88 @@ export default function Home() {
     <PageBackground>
       <BrandNav auth={auth} active="play" compact />
       <ResultAtmosphere type={pieceMotion.result} />
+      <MatchResultOverlay
+        game={game}
+        auth={auth}
+        playerNumber={playerNumber}
+        open={resultOverlayOpen}
+        matchId={resultMatchId}
+        onClose={() => setResultOverlayOpen(false)}
+        onNewGame={startGame}
+      />
+      <MatchGuardModal
+        guard={matchGuard}
+        onReturn={() => {
+          protectedActionRef.current = null;
+          setMatchGuard(null);
+        }}
+        onResign={confirmProtectedResign}
+      />
+      <ConfirmResignModal
+        open={resignConfirmOpen}
+        onCancel={() => setResignConfirmOpen(false)}
+        onConfirm={confirmResign}
+      />
+      <DrawOfferModal
+        offer={drawOffer}
+        onAccept={() => respondToDraw(true)}
+        onDecline={() => respondToDraw(false)}
+      />
       <div
         className="mx-auto flex min-h-[calc(100vh-88px)] w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8"
         onPointerDownCapture={gameAudio.unlock}
       >
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs font-black uppercase text-red-300">Premium local duel</p>
+            <p className="text-xs font-black uppercase text-red-300">Game cockpit</p>
             <h1 className="mt-2 text-4xl font-black uppercase tracking-normal text-amber-100 sm:text-6xl">
               Dark-Square Arena
             </h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 text-sm">
-            <StatusPill game={game} />
-            {isAiThinking ? (
-              <div className="flex min-h-11 items-center rounded-md border border-red-700/60 bg-red-950/70 px-4 font-black uppercase text-red-100 shadow-lg shadow-black/30">
-                AI thinking
-              </div>
-            ) : null}
             <CinematicButton href="/profile" variant="dark">Profile</CinematicButton>
             <CinematicButton href="/wanted-board" variant="dark">Wanted Board</CinematicButton>
             <CinematicButton onClick={auth.logout} variant="red">
               Logout
             </CinematicButton>
-            {isQueueing ? (
-              <CinematicButton onClick={leaveQueue} variant="red">
-                Cancel Search
-              </CinematicButton>
-            ) : null}
-            <CinematicButton onClick={startGame} disabled={isLoading || isQueueing}>
-              {LIVE_GAME_MODES.includes(gameMode) ? "Find Match" : "New Game"}
-            </CinematicButton>
           </div>
         </header>
 
-        <section className="grid flex-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_330px]">
-          <div className="mx-auto w-full max-w-[720px]">
+        <section className="grid flex-1 items-start gap-6 xl:grid-cols-[300px_minmax(420px,1fr)_320px] 2xl:grid-cols-[330px_minmax(520px,1fr)_340px]">
+          <SetupSocialPanel
+            auth={auth}
+            gameMode={gameMode}
+            setGameMode={changeGameMode}
+            aiDifficulty={aiDifficulty}
+            setAiDifficulty={setAiDifficulty}
+            opponentUserId={opponentUserId}
+            setOpponentUserId={setOpponentUserId}
+            players={players}
+            isLiveMode={isLiveMode}
+            isQueueing={isQueueing}
+            isLoading={isLoading}
+            socket={socket}
+            startGame={startGame}
+            leaveQueue={leaveQueue}
+            playerSearch={playerSearch}
+            setPlayerSearch={setPlayerSearch}
+            searchPlayers={searchPlayers}
+            searchResults={searchResults}
+            isSearchingPlayers={isSearchingPlayers}
+            sendChallenge={sendChallenge}
+            sendFriendRequest={sendFriendRequest}
+            challengeMessage={challengeMessage}
+            friends={friends}
+            friendRequests={friendRequests}
+            friendsMessage={friendsMessage}
+            answerFriendRequest={answerFriendRequest}
+            incomingChallenge={incomingChallenge}
+            acceptIncomingChallenge={acceptIncomingChallenge}
+            declineIncomingChallenge={declineIncomingChallenge}
+          />
+
+          <div className="mx-auto w-full max-w-[760px] xl:sticky xl:top-6">
             <Board
               board={game?.board ?? EMPTY_BOARD}
               selected={selected}
@@ -676,131 +958,260 @@ export default function Home() {
               visibleBoardSquares={visibleBoardSquares}
               animations={pieceMotion.animations}
               promotions={pieceMotion.promotions}
+              ownPlayerNumber={ownPlayerNumber}
+              ownPieceSkin={pieceSkin}
+              ownAvatarSrc={pieceAvatarSrc}
               disabled={!game || isLoading || isAiThinking || !isMyTurn}
             />
           </div>
 
-          <PosterPanel className="space-y-4 p-5">
-            <InfoRow label="Signed in" value={auth.user?.username ?? "Loading"} />
-            <label className="block border-b border-stone-950/30 pb-3 text-sm">
-              <span className="font-black uppercase text-stone-800">Game Mode</span>
-              <select
-                value={gameMode}
-                onChange={(event) => setGameMode(event.target.value)}
-                className="mt-2 h-10 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-black text-stone-950 outline-none focus:border-red-900"
-              >
-                <option value="local_pvp">Local PvP</option>
-                <option value="vs_ai">vs AI</option>
-                <option value="multiplayer">Online Multiplayer</option>
-                <option value="blitz">Blitz Duel</option>
-                <option value="blind_hunt_local">Blind Hunt - Local</option>
-                <option value="blind_hunt">Blind Hunt - Online</option>
-              </select>
-            </label>
-            {gameMode === "vs_ai" ? (
-              <label className="block border-b border-stone-950/30 pb-3 text-sm">
-                <span className="font-black uppercase text-stone-800">AI Difficulty</span>
-                <select
-                  value={aiDifficulty}
-                  onChange={(event) => setAiDifficulty(event.target.value)}
-                  className="mt-2 h-10 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-black text-stone-950 outline-none focus:border-red-900"
-                >
-                  <option value="beginner">Beginner</option>
-                  <option value="intermediate">Intermediate</option>
-                  <option value="expert">Expert</option>
-                </select>
-              </label>
-            ) : null}
-            <label className="block border-b border-stone-950/30 pb-3 text-sm">
-              <span className="font-black uppercase text-stone-800">Opponent</span>
-              <select
-                value={opponentUserId}
-                onChange={(event) => setOpponentUserId(event.target.value)}
-                disabled={gameMode === "vs_ai" || gameMode === "blind_hunt_local" || LIVE_GAME_MODES.includes(gameMode)}
-                className="mt-2 h-10 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-black text-stone-950 outline-none focus:border-red-900"
-              >
-                <option value="local">
-                  {gameMode === "vs_ai"
-                    ? `AI - ${labelDifficulty(aiDifficulty)}`
-                    : gameMode === "blind_hunt_local"
-                      ? "Local Blind Hunt"
-                    : LIVE_GAME_MODES.includes(gameMode)
-                      ? queueLabel(gameMode)
-                      : "Local Player 2"}
-                </option>
-                {players
-                  .filter((player) => player.userId !== auth.user?.id)
-                  .map((player) => (
-                    <option key={player.userId} value={player.userId}>
-                      {player.username} - {player.tier}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <InfoRow label="Game" value={game?.gameId ? shortId(game.gameId) : "Starting"} />
-            <InfoRow label="Mode" value={game ? modeLabel(game) : modeDraftLabel(gameMode, aiDifficulty)} />
-            {isLiveMode ? <InfoRow label="Socket" value={socketStatus} /> : null}
-            {isLiveMode ? <InfoRow label="You are" value={playerNumber ? `Player ${playerNumber}` : "Unassigned"} /> : null}
-            {isLiveMode ? <InfoRow label="Opponent" value={opponent?.username ?? (isQueueing ? "Searching" : "Waiting")} /> : null}
-            {game?.mode === "blitz" || gameMode === "blitz" ? (
-              <BlitzClockPanel blitzState={blitzState ?? game?.blitzState} playerNumber={playerNumber} />
-            ) : null}
-            {isLiveMode ? (
-              <ChallengePanel
-                query={playerSearch}
-                onQueryChange={setPlayerSearch}
-                onSearch={searchPlayers}
-                results={searchResults}
-                isSearching={isSearchingPlayers}
-                onChallenge={sendChallenge}
-                onAddFriend={sendFriendRequest}
-                message={challengeMessage}
-                disabled={!socket?.connected}
-              />
-            ) : null}
-            {isLiveMode ? (
-              <FriendsPanel
-                friends={friends}
-                requests={friendRequests}
-                message={friendsMessage}
-                onChallenge={sendChallenge}
-                onAccept={(friendshipId) => answerFriendRequest(friendshipId, "accept")}
-                onDecline={(friendshipId) => answerFriendRequest(friendshipId, "decline")}
-                disabled={!socket?.connected}
-              />
-            ) : null}
-            {incomingChallenge ? (
-              <IncomingChallengePanel
-                challenge={incomingChallenge}
-                onAccept={acceptIncomingChallenge}
-                onDecline={declineIncomingChallenge}
-              />
-            ) : null}
-            <InfoRow label="Session" value={sessionId ? shortId(sessionId) : "Local"} />
-            <InfoRow label="Turn" value={game?.currentTurn ? turnLabel(game, auth.user?.username, playerNumber, opponent?.username) : "Loading"} />
-            <InfoRow label="Forced jump" value={game?.forcedFrom ?? "None"} />
-            {isQueueing ? (
-              <div className="rounded-md border border-amber-700/50 bg-amber-950/20 p-3 text-sm font-black uppercase text-stone-950">
-                Waiting for opponent...
-              </div>
-            ) : null}
-            {isLiveGame(game) && game.status === "ongoing" ? (
-              <button
-                type="button"
-                onClick={() => socket?.emit("game:resign", { gameId: game.gameId })}
-                className="blood-button w-full"
-              >
-                Resign
-              </button>
-            ) : null}
-            {error ? <p className="rounded-md bg-red-950/80 px-3 py-2 text-sm text-red-100">{error}</p> : null}
-            {game && game.status !== "ongoing" ? (
-              <BountyResultPanel matchResult={game.matchResult} winner={game.winner} resultEffect={pieceMotion.result} onRestart={startGame} />
-            ) : null}
-          </PosterPanel>
+          <MatchStatusPanel
+            game={game}
+            gameMode={gameMode}
+            aiDifficulty={aiDifficulty}
+            auth={auth}
+            isLiveMode={isLiveMode}
+            isLiveGame={isLiveGame(game)}
+            isAiThinking={isAiThinking}
+            socketStatus={socketStatus}
+            playerNumber={playerNumber}
+            opponent={opponent}
+            isQueueing={isQueueing}
+            blitzState={blitzState}
+            socket={socket}
+            error={error}
+            drawMessage={drawMessage}
+            onResign={requestResign}
+            onOfferDraw={offerDraw}
+          />
         </section>
       </div>
     </PageBackground>
+  );
+}
+
+function SetupSocialPanel({
+  auth,
+  gameMode,
+  setGameMode,
+  aiDifficulty,
+  setAiDifficulty,
+  opponentUserId,
+  setOpponentUserId,
+  players,
+  isLiveMode,
+  isQueueing,
+  isLoading,
+  socket,
+  startGame,
+  leaveQueue,
+  playerSearch,
+  setPlayerSearch,
+  searchPlayers,
+  searchResults,
+  isSearchingPlayers,
+  sendChallenge,
+  sendFriendRequest,
+  challengeMessage,
+  friends,
+  friendRequests,
+  friendsMessage,
+  answerFriendRequest,
+  incomingChallenge,
+  acceptIncomingChallenge,
+  declineIncomingChallenge
+}) {
+  return (
+    <PosterPanel className="space-y-4 p-4 xl:sticky xl:top-6 xl:max-h-[calc(100vh-112px)] xl:overflow-y-auto">
+      <PanelHeading eyebrow="Setup & Social" title="Duel Controls" />
+      <InfoRow label="Signed in" value={auth.user?.username ?? "Loading"} />
+
+      <label className="block border-b border-stone-950/30 pb-3 text-sm">
+        <span className="font-black uppercase text-stone-800">Game Mode</span>
+        <select
+          value={gameMode}
+          onChange={(event) => setGameMode(event.target.value)}
+          className="mt-2 h-10 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-black text-stone-950 outline-none focus:border-red-900"
+        >
+          <option value="local_pvp">Local PvP</option>
+          <option value="vs_ai">vs AI</option>
+          <option value="multiplayer">Online Multiplayer</option>
+          <option value="blitz">Blitz Duel</option>
+          <option value="blind_hunt_local">Blind Hunt - Local</option>
+          <option value="blind_hunt">Blind Hunt - Online</option>
+        </select>
+      </label>
+
+      {gameMode === "vs_ai" ? (
+        <label className="block border-b border-stone-950/30 pb-3 text-sm">
+          <span className="font-black uppercase text-stone-800">AI Difficulty</span>
+          <select
+            value={aiDifficulty}
+            onChange={(event) => setAiDifficulty(event.target.value)}
+            className="mt-2 h-10 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-black text-stone-950 outline-none focus:border-red-900"
+          >
+            <option value="beginner">Beginner</option>
+            <option value="intermediate">Intermediate</option>
+            <option value="expert">Expert</option>
+          </select>
+        </label>
+      ) : null}
+
+      <label className="block border-b border-stone-950/30 pb-3 text-sm">
+        <span className="font-black uppercase text-stone-800">Opponent</span>
+        <select
+          value={opponentUserId}
+          onChange={(event) => setOpponentUserId(event.target.value)}
+          disabled={gameMode === "vs_ai" || gameMode === "blind_hunt_local" || LIVE_GAME_MODES.includes(gameMode)}
+          className="mt-2 h-10 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-black text-stone-950 outline-none focus:border-red-900"
+        >
+          <option value="local">
+            {gameMode === "vs_ai"
+              ? `AI - ${labelDifficulty(aiDifficulty)}`
+              : gameMode === "blind_hunt_local"
+                ? "Local Blind Hunt"
+              : LIVE_GAME_MODES.includes(gameMode)
+                ? queueLabel(gameMode)
+                : "Local Player 2"}
+          </option>
+          {players
+            .filter((player) => player.userId !== auth.user?.id)
+            .map((player) => (
+              <option key={player.userId} value={player.userId}>
+                {player.username} - {player.tier}
+              </option>
+            ))}
+        </select>
+      </label>
+
+      <div className="grid gap-2">
+        <button type="button" onClick={startGame} disabled={isLoading || isQueueing} className="poster-button w-full disabled:cursor-not-allowed disabled:opacity-60">
+          {LIVE_GAME_MODES.includes(gameMode) ? "Find Match" : "New Game"}
+        </button>
+        {isQueueing ? (
+          <button type="button" onClick={leaveQueue} className="blood-button w-full">
+            Cancel Queue
+          </button>
+        ) : null}
+      </div>
+
+      {isQueueing ? (
+        <div className="rounded-md border border-amber-700/50 bg-amber-950/20 p-3 text-sm font-black uppercase text-stone-950">
+          Waiting for opponent...
+        </div>
+      ) : null}
+
+      {isLiveMode ? (
+        <ChallengePanel
+          query={playerSearch}
+          onQueryChange={setPlayerSearch}
+          onSearch={searchPlayers}
+          results={searchResults}
+          isSearching={isSearchingPlayers}
+          onChallenge={sendChallenge}
+          onAddFriend={sendFriendRequest}
+          message={challengeMessage}
+          disabled={!socket?.connected}
+        />
+      ) : null}
+
+      {isLiveMode ? (
+        <FriendsPanel
+          friends={friends}
+          requests={friendRequests}
+          message={friendsMessage}
+          onChallenge={sendChallenge}
+          onAccept={(friendshipId) => answerFriendRequest(friendshipId, "accept")}
+          onDecline={(friendshipId) => answerFriendRequest(friendshipId, "decline")}
+          disabled={!socket?.connected}
+        />
+      ) : null}
+
+      {incomingChallenge ? (
+        <IncomingChallengePanel
+          challenge={incomingChallenge}
+          onAccept={acceptIncomingChallenge}
+          onDecline={declineIncomingChallenge}
+        />
+      ) : null}
+    </PosterPanel>
+  );
+}
+
+function MatchStatusPanel({
+  game,
+  gameMode,
+  aiDifficulty,
+  auth,
+  isLiveMode,
+  isLiveGame,
+  isAiThinking,
+  socketStatus,
+  playerNumber,
+  opponent,
+  isQueueing,
+  blitzState,
+  socket,
+  error,
+  drawMessage,
+  onResign,
+  onOfferDraw
+}) {
+  return (
+    <PosterPanel className="space-y-4 p-4 xl:sticky xl:top-6 xl:max-h-[calc(100vh-112px)] xl:overflow-y-auto">
+      <PanelHeading eyebrow="Match Status" title="Board Intel" />
+      <StatusPill game={game} />
+      {isAiThinking ? (
+        <div className="flex min-h-11 items-center rounded-md border border-red-700/60 bg-red-950/70 px-4 font-black uppercase text-red-100 shadow-lg shadow-black/30">
+          AI thinking
+        </div>
+      ) : null}
+
+      <InfoRow label="Mode" value={game ? modeLabel(game) : modeDraftLabel(gameMode, aiDifficulty)} />
+      {isLiveMode ? <InfoRow label="Opponent" value={opponent?.username ?? (isQueueing ? "Searching" : "Waiting")} /> : null}
+      {isLiveMode ? <InfoRow label="You are" value={playerNumber ? `Player ${playerNumber}` : "Unassigned"} /> : null}
+      {isLiveMode ? <InfoRow label="Connection" value={socketStatus} /> : null}
+      <InfoRow label="Turn" value={game?.currentTurn ? turnLabel(game, auth.user?.username, playerNumber, opponent?.username) : "Loading"} />
+      <InfoRow label="Forced jump" value={game?.forcedFrom ?? "None"} />
+
+      {game?.mode === "blitz" || gameMode === "blitz" ? (
+        <BlitzClockPanel blitzState={blitzState ?? game?.blitzState} playerNumber={playerNumber} />
+      ) : null}
+
+      {isLiveGame && game?.status === "ongoing" ? (
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+          <button type="button" onClick={onOfferDraw} className="dark-button w-full">
+            Offer Draw
+          </button>
+          <button type="button" onClick={onResign} className="blood-button w-full">
+            Resign
+          </button>
+        </div>
+      ) : null}
+
+      {drawMessage ? (
+        <div className="rounded-md border border-amber-700/50 bg-amber-950/20 p-3 text-sm font-black uppercase text-stone-950">
+          {drawMessage}
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="rounded-md border border-red-900/50 bg-red-950/80 px-3 py-2 text-sm text-red-100">
+          <p className="text-xs font-black uppercase text-red-200">Connection Alert</p>
+          <p className="mt-1 font-semibold">{error}</p>
+        </div>
+      ) : null}
+
+    </PosterPanel>
+  );
+}
+
+function PanelHeading({ eyebrow, title }) {
+  return (
+    <div className="border-b border-stone-950/30 pb-3">
+      <p className="text-xs font-black uppercase text-red-900">{eyebrow}</p>
+      <h2 className="mt-1 text-2xl font-black uppercase tracking-normal text-stone-950">{title}</h2>
+    </div>
   );
 }
 
@@ -816,6 +1227,9 @@ function Board({
   visibleBoardSquares = null,
   animations,
   promotions,
+  ownPlayerNumber = 1,
+  ownPieceSkin = "classic",
+  ownAvatarSrc = "",
   disabled
 }) {
   const boardRef = useRef(null);
@@ -831,6 +1245,7 @@ function Board({
 
   function startPieceDrag(event, playableIndex, piece) {
     if (disabled || piece === 0) return;
+    const cosmeticSkin = resolvePieceSkin(piece, ownPlayerNumber, ownPieceSkin);
 
     event.preventDefault();
     event.stopPropagation();
@@ -840,6 +1255,8 @@ function Board({
       pointerId: event.pointerId,
       playableIndex,
       piece,
+      skin: cosmeticSkin,
+      avatarSrc: cosmeticSkin === "avatar" ? ownAvatarSrc : "",
       startX: pointer.x,
       startY: pointer.y,
       x: pointer.x,
@@ -897,6 +1314,8 @@ function Board({
         id: `${Date.now()}-${current.playableIndex}`,
         playableIndex: current.playableIndex,
         piece: current.piece,
+        skin: current.skin,
+        avatarSrc: current.avatarSrc,
         originX: origin.x,
         originY: origin.y,
         fromX: event.clientX,
@@ -925,6 +1344,7 @@ function Board({
           const canInteract = !isHiddenByFog || isMoveTarget;
           const isDragging = dragState?.playableIndex === playableIndex;
           const isSnappingBack = snapBack?.playableIndex === playableIndex;
+          const skin = resolvePieceSkin(piece, ownPlayerNumber, ownPieceSkin);
           const rawAnimation = playableIndex !== null ? animations[playableIndex] : null;
           const animation =
             rawAnimation && playableIndex !== null
@@ -960,6 +1380,8 @@ function Board({
                   dragging={isDragging || isSnappingBack}
                   animation={animation}
                   promotion={promotion}
+                  skin={skin}
+                  avatarSrc={skin === "avatar" ? ownAvatarSrc : ""}
                   onPointerDown={(event) => startPieceDrag(event, playableIndex, piece)}
                   onPointerMove={movePieceDrag}
                   onPointerUp={endPieceDrag}
@@ -978,7 +1400,7 @@ function Board({
   );
 }
 
-function Piece({ piece, selected, dragging, animation, promotion, onPointerDown, onPointerMove, onPointerUp, onPointerCancel }) {
+function Piece({ piece, selected, dragging, animation, promotion, skin = "classic", avatarSrc = "", onPointerDown, onPointerMove, onPointerUp, onPointerCancel }) {
   const isPlayerOne = piece === 1 || piece === 3;
   const isKing = piece === 3 || piece === 4;
   const slideStyle = animation
@@ -987,6 +1409,7 @@ function Piece({ piece, selected, dragging, animation, promotion, onPointerDown,
         "--piece-slide-y": `${animation.dy * 138.888}%`
       }
     : undefined;
+  const pieceClassName = pieceSkinClassName(skin, isPlayerOne);
 
   return (
     <span
@@ -998,9 +1421,8 @@ function Piece({ piece, selected, dragging, animation, promotion, onPointerDown,
       style={slideStyle}
       className={[
         "checker-piece relative flex h-[72%] w-[72%] touch-none select-none items-center justify-center rounded-full border-4 text-xs font-black shadow-lg sm:text-sm",
-        isPlayerOne
-          ? "border-red-950 bg-gradient-to-br from-red-600 to-red-950 text-red-50 shadow-red-950/60"
-          : "border-stone-950 bg-gradient-to-br from-stone-50 to-amber-200 text-stone-950 shadow-black/70",
+        pieceClassName,
+        isKing ? "king-piece-aura" : "",
         animation ? "piece-slide" : "",
         promotion ? "king-promotion-burst" : "",
         dragging ? "opacity-20" : "",
@@ -1008,8 +1430,31 @@ function Piece({ piece, selected, dragging, animation, promotion, onPointerDown,
       ].join(" ")}
     >
       {promotion ? <span className="promotion-flash" /> : null}
-      <span className="relative z-10">{isKing ? "K" : PIECE_LABELS[piece]}</span>
+      <PieceFace piece={piece} skin={skin} avatarSrc={avatarSrc} />
     </span>
+  );
+}
+
+function PieceFace({ piece, skin, avatarSrc }) {
+  const isKing = piece === 3 || piece === 4;
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const showAvatar = skin === "avatar" && avatarSrc && !avatarFailed;
+
+  return (
+    <>
+      {showAvatar ? (
+        <img
+          src={avatarSrc}
+          alt=""
+          draggable={false}
+          className="piece-avatar-face"
+          onError={() => setAvatarFailed(true)}
+        />
+      ) : null}
+      <span className={`piece-face-label ${showAvatar && !isKing ? "sr-only" : ""}`}>
+        {isKing ? "K" : PIECE_LABELS[piece]}
+      </span>
+    </>
   );
 }
 
@@ -1018,6 +1463,7 @@ function DraggedPiece({ dragState, boardElement }) {
   const bounds = boardElement.getBoundingClientRect();
   const size = bounds.width / 8;
   const isPlayerOne = dragState.piece === 1 || dragState.piece === 3;
+  const skin = dragState.skin ?? "classic";
 
   return (
     <div
@@ -1032,12 +1478,11 @@ function DraggedPiece({ dragState, boardElement }) {
       <span
         className={[
           "checker-piece dragging-piece flex h-[72%] w-[72%] items-center justify-center rounded-full border-4 text-xs font-black shadow-lg sm:text-sm",
-          isPlayerOne
-            ? "border-red-950 bg-gradient-to-br from-red-600 to-red-950 text-red-50 shadow-red-950/60"
-            : "border-stone-950 bg-gradient-to-br from-stone-50 to-amber-200 text-stone-950 shadow-black/70"
+          pieceSkinClassName(skin, isPlayerOne),
+          dragState.piece === 3 || dragState.piece === 4 ? "king-piece-aura" : ""
         ].join(" ")}
       >
-        {dragState.piece === 3 || dragState.piece === 4 ? "K" : PIECE_LABELS[dragState.piece]}
+        <PieceFace piece={dragState.piece} skin={skin} avatarSrc={dragState.avatarSrc ?? ""} />
       </span>
     </div>
   );
@@ -1047,6 +1492,7 @@ function SnapBackPiece({ snapBack, boardElement }) {
   if (!boardElement) return null;
   const bounds = boardElement.getBoundingClientRect();
   const isPlayerOne = snapBack.piece === 1 || snapBack.piece === 3;
+  const skin = snapBack.skin ?? "classic";
 
   return (
     <div
@@ -1063,12 +1509,11 @@ function SnapBackPiece({ snapBack, boardElement }) {
       <span
         className={[
           "checker-piece snap-back-piece flex h-[72%] w-[72%] items-center justify-center rounded-full border-4 text-xs font-black shadow-lg sm:text-sm",
-          isPlayerOne
-            ? "border-red-950 bg-gradient-to-br from-red-600 to-red-950 text-red-50 shadow-red-950/60"
-            : "border-stone-950 bg-gradient-to-br from-stone-50 to-amber-200 text-stone-950 shadow-black/70"
+          pieceSkinClassName(skin, isPlayerOne),
+          snapBack.piece === 3 || snapBack.piece === 4 ? "king-piece-aura" : ""
         ].join(" ")}
       >
-        {snapBack.piece === 3 || snapBack.piece === 4 ? "K" : PIECE_LABELS[snapBack.piece]}
+        <PieceFace piece={snapBack.piece} skin={skin} avatarSrc={snapBack.avatarSrc ?? ""} />
       </span>
     </div>
   );
@@ -1261,6 +1706,19 @@ function pieceOwner(piece) {
   return 0;
 }
 
+function resolvePieceSkin(piece, ownPlayerNumber, ownPieceSkin) {
+  return pieceOwner(piece) === ownPlayerNumber ? ownPieceSkin : "classic";
+}
+
+function pieceSkinClassName(skin, isPlayerOne) {
+  if (skin === "crimson") return "piece-skin-crimson text-red-50";
+  if (skin === "ivory") return "piece-skin-ivory text-stone-950";
+  if (skin === "avatar") return "piece-skin-avatar text-amber-50";
+  return isPlayerOne
+    ? "border-red-950 bg-gradient-to-br from-red-600 to-red-950 text-red-50 shadow-red-950/60"
+    : "border-stone-950 bg-gradient-to-br from-stone-50 to-amber-200 text-stone-950 shadow-black/70";
+}
+
 function isCompatibleMovedPiece(before, after) {
   if (before === after) return true;
   return (before === 1 && after === 3) || (before === 2 && after === 4);
@@ -1361,7 +1819,7 @@ function ChallengePanel({ query, onQueryChange, onSearch, results, isSearching, 
         </button>
       </div>
       {message ? <p className="text-xs font-bold text-stone-800">{message}</p> : null}
-      <div className="space-y-2">
+      <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
         {results.map((player) => (
           <div key={player.userId} className="rounded-md border border-stone-950/30 bg-stone-50/20 p-2">
             <div className="flex items-center justify-between gap-3">
@@ -1430,7 +1888,7 @@ function FriendsPanel({ friends, requests, message, onChallenge, onAccept, onDec
         </div>
       ) : null}
 
-      <div className="space-y-2">
+      <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
         <p className="text-xs font-black uppercase text-stone-700">Friends</p>
         {friends.length === 0 ? (
           <p className="text-xs font-bold text-stone-800">No friends yet.</p>
@@ -1507,116 +1965,305 @@ function IncomingChallengePanel({ challenge, onAccept, onDecline }) {
   );
 }
 
-function BountyResultPanel({ matchResult, winner, resultEffect, onRestart }) {
-  if (matchResult?.draw) {
-    return (
-      <div className="poster-panel result-panel result-panel-draw p-5 text-center text-stone-950">
-        <p className="text-sm font-black uppercase text-red-900">Match Result</p>
-        <p className="mt-2 text-5xl font-black uppercase tracking-normal">DRAW</p>
-        <p className="mt-3 rounded-md bg-stone-950/15 p-3 text-sm font-black uppercase">
-          NO PLAYER COULD CLAIM THE BOUNTY
-        </p>
-        <p className="mt-3 text-xs font-bold uppercase text-stone-700">
-          {drawReasonLabel(matchResult.drawReason)}
-        </p>
-        <button
-          type="button"
-          onClick={onRestart}
-          className="dark-button mt-4 w-full"
-        >
-          New Game
-        </button>
-      </div>
-    );
-  }
-
-  if (!matchResult) {
-    return (
-      <div className={`poster-panel result-panel ${resultEffect === "defeat" ? "result-panel-defeat" : "result-panel-victory"} p-4`}>
-        <p className="text-sm font-semibold uppercase">Winner</p>
-        <p className="mt-1 text-3xl font-black tracking-normal">Player {winner}</p>
-        <button
-          type="button"
-          onClick={onRestart}
-          className="mt-4 h-10 w-full rounded-md bg-stone-950 px-4 font-bold text-amber-200 transition hover:bg-stone-800"
-        >
-          New Game
-        </button>
-      </div>
-    );
-  }
+function MatchGuardModal({ guard, onReturn, onResign }) {
+  if (!guard) return null;
 
   return (
-    <div className={`poster-panel result-panel ${resultEffect === "defeat" ? "result-panel-defeat" : "result-panel-victory"} p-5 text-stone-950`}>
-      <p className="text-sm font-black uppercase text-red-900">BOUNTY UPDATED</p>
-      <p className="mt-2 text-3xl font-black tracking-normal">{matchResult.winnerDisplayName}</p>
-      {matchResult.timeout ? (
-        <p className="mt-3 rounded-md border border-red-900/40 bg-red-950/15 p-3 text-sm font-black uppercase text-red-950">
-          {matchResult.message}
-        </p>
-      ) : null}
-      <div className="bounty-text mt-3 text-4xl">
-        {matchResult.localOnly ? "Local Match" : `+${formatBounty(matchResult.bountyGain)}`}
-      </div>
-      {matchResult.localOnly ? (
-        <p className="mt-3 rounded-md bg-stone-950/15 p-3 text-sm font-bold">
-          {matchResult.message}
-        </p>
-      ) : null}
-      <InfoRowDark
-        label="Total bounty"
-        value={matchResult.winnerNewBounty === null ? "Not updated" : formatBounty(matchResult.winnerNewBounty)}
-      />
-      <div className="mt-3">
-        <TierBadge tier={matchResult.winnerTier ?? "Unknown"} />
-      </div>
-      <InfoRowDark label="Streak" value={`x${matchResult.streakMultiplier}`} />
-
-      <div className="mt-4 space-y-2">
-        <p className="text-xs font-black uppercase">Bonuses</p>
-        {matchResult.bonusesApplied.length > 0 ? (
-          matchResult.bonusesApplied.map((bonus) => (
-            <div
-              key={bonus.code}
-              className="flex items-center justify-between gap-3 border-b border-stone-950/30 pb-2 text-sm font-bold"
-            >
-              <span>{bonus.label}</span>
-              <span>+{formatBounty(bonus.amount)}</span>
-            </div>
-          ))
-        ) : (
-          <p className="text-sm font-semibold">No bonus bounty applied.</p>
-        )}
-      </div>
-
-      <button
-        type="button"
-        onClick={onRestart}
-        className="dark-button mt-4 w-full"
-      >
-        New Game
-      </button>
+    <div className="cinematic-overlay fixed inset-0 flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-md">
+      <PosterPanel className="max-w-xl p-6 text-center shadow-2xl shadow-black/60">
+        <p className="text-xs font-black uppercase text-red-900">Competitive Match Protection</p>
+        <h2 className="mt-2 text-4xl font-black uppercase tracking-normal text-stone-950">
+          {guard.title}
+        </h2>
+        <p className="mt-4 text-lg font-black text-stone-900">{guard.message}</p>
+        <p className="mt-2 text-sm font-bold text-stone-800">{guard.detail}</p>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <button type="button" onClick={onReturn} disabled={guard.resigning} className="poster-button disabled:opacity-60">
+            Return to Match
+          </button>
+          <button type="button" onClick={onResign} disabled={guard.resigning} className="blood-button disabled:opacity-60">
+            {guard.resigning ? "Resigning..." : "Resign and Leave"}
+          </button>
+        </div>
+      </PosterPanel>
     </div>
   );
+}
+
+function ConfirmResignModal({ open, onCancel, onConfirm }) {
+  if (!open) return null;
+
+  return (
+    <div className="cinematic-overlay fixed inset-0 flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-md">
+      <PosterPanel className="max-w-lg p-6 text-center shadow-2xl shadow-black/60">
+        <p className="text-xs font-black uppercase text-red-900">No Turning Back</p>
+        <h2 className="mt-2 text-4xl font-black uppercase tracking-normal text-stone-950">Resign Match?</h2>
+        <p className="mt-4 text-lg font-black text-stone-900">This will count as a defeat.</p>
+        <p className="mt-2 text-sm font-bold text-stone-800">
+          Your opponent will win immediately and bounty changes will be finalized normally.
+        </p>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <button type="button" onClick={onCancel} className="poster-button">
+            Return to Match
+          </button>
+          <button type="button" onClick={onConfirm} className="blood-button">
+            Confirm Resign
+          </button>
+        </div>
+      </PosterPanel>
+    </div>
+  );
+}
+
+function DrawOfferModal({ offer, onAccept, onDecline }) {
+  if (!offer) return null;
+
+  return (
+    <div className="cinematic-overlay fixed inset-0 flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-md">
+      <PosterPanel className="max-w-lg p-6 text-center shadow-2xl shadow-black/60">
+        <p className="text-xs font-black uppercase text-red-900">Draw Offer</p>
+        <h2 className="mt-2 text-4xl font-black uppercase tracking-normal text-stone-950">Accept Draw?</h2>
+        <p className="mt-4 text-lg font-black text-stone-900">
+          {offer.offeredByUsername ?? "Opponent"} offers to split the bountyless result.
+        </p>
+        <p className="mt-2 text-sm font-bold text-stone-800">
+          A draw only finalizes if both players agree. No bounty will be awarded.
+        </p>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <button type="button" onClick={onDecline} className="blood-button">
+            Decline
+          </button>
+          <button type="button" onClick={onAccept} className="poster-button">
+            Accept Draw
+          </button>
+        </div>
+      </PosterPanel>
+    </div>
+  );
+}
+
+function MatchResultOverlay({ game, auth, playerNumber, open, matchId, onClose, onNewGame }) {
+  const [rendered, setRendered] = useState(open);
+  const [closing, setClosing] = useState(false);
+
+  useBodyScrollLock(rendered);
+
+  useEffect(() => {
+    if (open) {
+      setRendered(true);
+      setClosing(false);
+      return undefined;
+    }
+
+    if (!rendered) return undefined;
+    setClosing(true);
+    const timeoutId = window.setTimeout(() => {
+      setRendered(false);
+      setClosing(false);
+    }, 180);
+    return () => window.clearTimeout(timeoutId);
+  }, [open, rendered]);
+
+  if (!rendered || !game || game.status === "ongoing") return null;
+
+  const outcome = resolveMatchOutcome(game, playerNumber, auth.stats);
+  const replayHref = matchId ? `/replay/${matchId}` : "";
+  const coachHref = matchId ? `/replay/${matchId}?coach=1` : "";
+
+  return (
+    <div className={`cinematic-overlay match-result-overlay fixed inset-0 flex items-center justify-center px-3 py-5 ${closing ? "match-result-overlay-closing" : ""}`}>
+      <button type="button" aria-label="Close result overlay" onClick={onClose} className="absolute inset-0 cursor-default bg-black/70 backdrop-blur-sm" />
+      <section
+        role="dialog"
+        aria-modal="true"
+        className={[
+          "match-result-card poster-panel relative z-10 max-h-[92vh] w-full max-w-3xl overflow-y-auto p-5 text-center shadow-2xl sm:p-7",
+          outcome.type === "victory" ? "match-result-victory" : "",
+          outcome.type === "defeat" ? "match-result-defeat" : "",
+          outcome.type === "draw" ? "match-result-draw" : ""
+        ].join(" ")}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-3 top-3 rounded-md border border-stone-950/40 bg-stone-950/10 px-3 py-1 text-xs font-black uppercase text-stone-950 transition hover:bg-stone-950 hover:text-amber-100"
+        >
+          Close
+        </button>
+
+        <p className="text-xs font-black uppercase text-red-900">{outcome.eyebrow}</p>
+        <h2 className="mt-2 text-5xl font-black uppercase tracking-normal text-stone-950 sm:text-7xl">
+          {outcome.title}
+        </h2>
+        <p className="mx-auto mt-2 max-w-xl text-sm font-bold uppercase text-stone-700 sm:text-base">
+          {outcome.subtitle}
+        </p>
+
+        <div className="match-result-bounty mx-auto mt-6 rounded-md border border-stone-950/30 bg-stone-950/10 p-4">
+          <p className="text-xs font-black uppercase text-stone-700">{outcome.amountLabel}</p>
+          <AnimatedBountyAmount
+            value={outcome.primaryAmount}
+            prefix={outcome.amountPrefix}
+            active={open}
+            className={`mt-1 block text-5xl sm:text-7xl ${outcome.type === "defeat" ? "text-red-950" : ""}`}
+          />
+          <p className="mt-2 text-sm font-black uppercase text-stone-800">
+            {outcome.totalLabel}: {outcome.totalBounty === null ? "Not updated" : formatBounty(outcome.totalBounty)}
+          </p>
+        </div>
+
+        {outcome.newRank ? (
+          <div className="mx-auto mt-4 max-w-sm rounded-md border border-amber-700 bg-amber-300/40 px-4 py-3 text-center shadow-lg shadow-amber-900/20">
+            <p className="text-xs font-black uppercase text-red-900">New Rank</p>
+            <p className="text-2xl font-black uppercase tracking-normal text-stone-950">{outcome.newRank}</p>
+          </div>
+        ) : null}
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          {outcome.stats.map((stat) => (
+            <div key={stat.label} className="rounded-md border border-stone-950/30 bg-stone-50/20 p-3">
+              <p className="text-[11px] font-black uppercase text-stone-700">{stat.label}</p>
+              <p className="mt-1 text-2xl font-black text-stone-950">{stat.value}</p>
+            </div>
+          ))}
+        </div>
+
+        {outcome.bonuses.length > 0 ? (
+          <div className="mt-5 rounded-md border border-stone-950/30 bg-stone-950/10 p-3 text-left">
+            <p className="text-xs font-black uppercase text-stone-700">Bonuses Applied</p>
+            <div className="mt-2 space-y-2">
+              {outcome.bonuses.map((bonus) => (
+                <div key={bonus.code} className="flex items-center justify-between gap-3 border-b border-stone-950/20 pb-2 text-sm font-black text-stone-950">
+                  <span>{bonus.label}</span>
+                  <span>+{formatBounty(bonus.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <button type="button" onClick={onNewGame} className="poster-button">
+            New Game
+          </button>
+          {replayHref ? (
+            <a href={replayHref} className="dark-button text-center">Watch Replay</a>
+          ) : (
+            <button type="button" disabled className="dark-button opacity-50">Watch Replay</button>
+          )}
+          {coachHref ? (
+            <a href={coachHref} className="dark-button text-center">AI Coach Analysis</a>
+          ) : (
+            <button type="button" disabled className="dark-button opacity-50">AI Coach Analysis</button>
+          )}
+          <a href="/stats" className="blood-button text-center">View Stats</a>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AnimatedBountyAmount({ value, prefix = "", active, className = "" }) {
+  const animatedValue = useAnimatedNumber(Math.abs(Number(value ?? 0)), active);
+  return <span className={`bounty-text ${className}`}>{prefix}{formatBounty(animatedValue)}</span>;
+}
+
+function useAnimatedNumber(target, active) {
+  const [value, setValue] = useState(0);
+
+  useEffect(() => {
+    if (!active) return undefined;
+    const start = performance.now();
+    const duration = 900;
+    let frameId = 0;
+
+    function tick(now) {
+      const progress = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setValue(Math.round(target * eased));
+      if (progress < 1) frameId = requestAnimationFrame(tick);
+    }
+
+    setValue(0);
+    frameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameId);
+  }, [active, target]);
+
+  return value;
+}
+
+function resolveMatchOutcome(game, playerNumber, currentStats) {
+  const matchResult = game.matchResult ?? {};
+  if (matchResult.draw || game.status === "draw") {
+    return {
+      type: "draw",
+      eyebrow: "Match Result",
+      title: "Draw",
+      subtitle: "No player could claim the bounty.",
+      amountLabel: "Bounty Awarded",
+      amountPrefix: "",
+      primaryAmount: 0,
+      totalLabel: "Bounty",
+      totalBounty: currentStats?.bounty ?? null,
+      newRank: "",
+      bonuses: [],
+      stats: [
+        { label: "Result", value: "Draw" },
+        { label: "Reason", value: drawReasonLabel(matchResult.drawReason) },
+        { label: "Bounty", value: "None" }
+      ]
+    };
+  }
+
+  const ownPlayer = isLiveGame(game) && playerNumber ? playerNumber : 1;
+  const didWin = game.winner === ownPlayer;
+  const tierChanged = didWin && matchResult.winnerTier && currentStats?.tier && currentStats.tier !== matchResult.winnerTier;
+
+  if (didWin) {
+    return {
+      type: "victory",
+      eyebrow: "Victory Confirmed",
+      title: matchResult.localOnly ? "You Won" : "Bounty Updated",
+      subtitle: matchResult.localOnly ? matchResult.message : `${matchResult.winnerDisplayName ?? "Winner"} claimed the board.`,
+      amountLabel: matchResult.localOnly ? "Local Match" : "Bounty Gained",
+      amountPrefix: matchResult.localOnly ? "" : "+",
+      primaryAmount: matchResult.bountyGain ?? 0,
+      totalLabel: "New Total Bounty",
+      totalBounty: matchResult.winnerNewBounty ?? null,
+      newRank: tierChanged ? matchResult.winnerTier : "",
+      bonuses: matchResult.bonusesApplied ?? [],
+      stats: [
+        { label: "Winner", value: matchResult.winnerDisplayName ?? `Player ${game.winner}` },
+        { label: "Win Streak", value: `x${matchResult.streakMultiplier ?? 1}` },
+        { label: "Tier", value: matchResult.winnerTier ?? "Unknown" }
+      ]
+    };
+  }
+
+  return {
+    type: "defeat",
+    eyebrow: "Defeat Recorded",
+    title: matchResult.localOnly ? "Defeat" : "Bounty Lost",
+    subtitle: matchResult.timeout ? matchResult.message : `${matchResult.winnerDisplayName ?? "Opponent"} took the match.`,
+    amountLabel: matchResult.localOnly ? "Local Match" : "Bounty Lost",
+    amountPrefix: matchResult.localOnly ? "" : "-",
+    primaryAmount: matchResult.bountyLoss ?? 0,
+    totalLabel: "New Total Bounty",
+    totalBounty: matchResult.loserNewBounty ?? null,
+    newRank: "",
+    bonuses: [],
+    stats: [
+      { label: "Opponent Gained", value: matchResult.localOnly ? "None" : `+${formatBounty(matchResult.bountyGain ?? 0)}` },
+      { label: "Winner", value: matchResult.winnerDisplayName ?? `Player ${game.winner}` },
+      { label: "Tier", value: matchResult.loserTier ?? "Unknown" }
+    ]
+  };
 }
 
 function drawReasonLabel(reason) {
   if (reason === "threefold_repetition") return "Threefold repetition";
   if (reason === "no_progress") return "30 turns without capture or promotion";
   return "Draw";
-}
-
-function InfoRowDark({ label, value }) {
-  return (
-    <div className="mt-3 flex items-center justify-between gap-4 border-b border-stone-950/30 pb-2 text-sm">
-      <span className="font-semibold text-stone-800">{label}</span>
-      <span className="max-w-[150px] truncate font-black text-stone-950">{value}</span>
-    </div>
-  );
-}
-
-function shortId(value) {
-  return `${value.slice(0, 8)}...`;
 }
 
 function formatClock(value) {

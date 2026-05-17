@@ -81,6 +81,39 @@ export async function findGameRecord(gameId) {
   return mapGameRow(result.rows[0]);
 }
 
+export async function findActiveOnlineGameForUser(userId) {
+  const result = await query(
+    `SELECT id,
+            board,
+            current_turn,
+            forced_from,
+            position_counts,
+            moves_without_progress,
+            status,
+            winner,
+            player_one_user_id,
+            player_two_user_id,
+            mode,
+            ai_difficulty,
+            blitz_state,
+            move_history,
+            match_result,
+            created_at
+     FROM games
+     WHERE status = 'ongoing'
+       AND mode IN ('multiplayer', 'blitz', 'blind_hunt')
+       AND player_one_user_id IS NOT NULL
+       AND player_two_user_id IS NOT NULL
+       AND (player_one_user_id = $1 OR player_two_user_id = $1)
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+
+  if (result.rowCount === 0) return null;
+  return mapGameRow(result.rows[0]);
+}
+
 export async function updateGameRecord(gameId, state, options = {}) {
   const executor = options.client ?? { query };
   const matchResult = state.matchResult ?? options.matchResult ?? null;

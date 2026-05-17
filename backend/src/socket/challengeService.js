@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { findUserByUsername } from "../userRepository.js";
+import { findActiveOnlineGameForUser } from "../gameRepository.js";
 import {
   emitToUser,
   getPrimarySocket,
@@ -19,6 +20,12 @@ export async function sendChallenge(socket, payload) {
   if (!targetUser) throw new Error("Player not found.");
   if (targetUser.id === socket.data.user.id) throw new Error("You cannot challenge yourself.");
   if (!isUserOnline(targetUser.id)) throw new Error("That player is not online right now.");
+  if (await findActiveOnlineGameForUser(socket.data.user.id)) {
+    throw new Error("You are currently in an active online game. Resign or finish it before challenging another player.");
+  }
+  if (await findActiveOnlineGameForUser(targetUser.id)) {
+    throw new Error("That player is already in an active online game.");
+  }
 
   const key = challengePairKey(socket.data.user.id, targetUser.id);
   if (challengeKeys.has(key)) throw new Error("A challenge is already active between these players.");

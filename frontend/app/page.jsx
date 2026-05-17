@@ -1,42 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import {
   BoardMotif,
   BrandNav,
   CinematicButton,
   PageBackground,
-  PosterPanel,
-  WantedPosterCard
+  PosterPanel
 } from "./components/wanted-ui";
 import { useAuth } from "./auth-context";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const HERO_IMAGE_SRC = "/images/wanted-checkers-duel.png";
 
 export default function LandingPage() {
   const auth = useAuth();
-  const [players, setPlayers] = useState([]);
-
-  useEffect(() => {
-    async function loadPlayers() {
-      try {
-        const response = await fetch(`${API_URL}/api/players/leaderboard`, { cache: "no-store" });
-        if (!response.ok) return;
-        const payload = await response.json();
-        setPlayers(payload.players.slice(0, 3));
-      } catch {
-        setPlayers([]);
-      }
-    }
-
-    loadPlayers();
-  }, []);
 
   return (
     <PageBackground>
       <BrandNav auth={auth} />
 
-      <section className="mx-auto grid min-h-[calc(100vh-88px)] max-w-7xl items-center gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1fr_0.95fr] lg:px-8">
+      <section className="mx-auto grid min-h-[calc(100vh-88px)] max-w-7xl items-center gap-10 px-4 py-10 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8">
         <div className="relative">
           <BoardMotif className="absolute -left-8 -top-8 h-56 w-56 rotate-12 blur-[1px]" />
           <p className="relative text-sm font-black uppercase text-red-300">Dark-square bounty arena</p>
@@ -79,56 +61,24 @@ export default function LandingPage() {
           </PosterPanel>
         </div>
 
-        <div>
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div>
-              <p className="text-xs font-black uppercase text-amber-400">Top most wanted</p>
-              <h2 className="text-3xl font-black uppercase tracking-normal text-stone-50">Poster Wall</h2>
-            </div>
-            <a href="/wanted-board" className="text-sm font-black uppercase text-amber-200 hover:text-amber-100">
-              View all
-            </a>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
-            {(players.length ? players : fallbackPlayers).map((player, index) => (
-              <WantedPosterCard key={player.userId ?? player.username} player={player} rank={index + 1} compact />
-            ))}
-          </div>
-        </div>
+        <CinematicDuelHero />
       </section>
     </PageBackground>
   );
 }
 
-const fallbackPlayers = [
-  {
-    userId: "preview-1",
-    username: "crown_rival",
-    city: "Almaty",
-    bounty: 5_600_000,
-    tier: "Rookie Threat",
-    wins: 8,
-    losses: 2,
-    currentWinStreak: 3
-  },
-  {
-    userId: "preview-2",
-    username: "diagonal_ace",
-    city: "Astana",
-    bounty: 12_400_000,
-    tier: "Rising Menace",
-    wins: 15,
-    losses: 5,
-    currentWinStreak: 4
-  },
-  {
-    userId: "preview-3",
-    username: "kingmaker",
-    city: "Shymkent",
-    bounty: 51_000_000,
-    tier: "Dangerous",
-    wins: 32,
-    losses: 8,
-    currentWinStreak: 6
-  }
-];
+function CinematicDuelHero() {
+  return (
+    <div className="relative">
+      <div className="pointer-events-none absolute -inset-5 rounded-[2rem] bg-amber-500/10 blur-3xl" />
+      <figure className="hero-duel-card relative overflow-hidden rounded-xl border border-amber-700/25 bg-black shadow-2xl shadow-black/70">
+        <img
+          src={HERO_IMAGE_SRC}
+          alt="Two original WANTED CHECKERS pieces facing each other in a cinematic bounty duel"
+          className="aspect-[16/10] w-full object-cover object-center sm:aspect-[16/9] lg:min-h-[34rem]"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/20 via-transparent to-black/15" />
+      </figure>
+    </div>
+  );
+}
