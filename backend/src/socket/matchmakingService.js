@@ -1,14 +1,15 @@
 const queue = new Map();
 
-export function joinQueue(socket) {
+export function joinQueue(socket, options = {}) {
   leaveQueue(socket.data.user.id);
 
   const entry = {
     socket,
     user: socket.data.user,
+    mode: normalizeLiveMode(options.mode),
     joinedAt: Date.now()
   };
-  const opponent = findOpponent(entry.user.id);
+  const opponent = findOpponent(entry.user.id, entry.mode);
 
   if (!opponent) {
     queue.set(entry.user.id, entry);
@@ -19,8 +20,15 @@ export function joinQueue(socket) {
   queue.delete(opponent.user.id);
   return {
     playerOne: opponent,
-    playerTwo: entry
+    playerTwo: entry,
+    mode: entry.mode
   };
+}
+
+function normalizeLiveMode(mode) {
+  if (mode === "blitz") return "blitz";
+  if (mode === "blind_hunt") return "blind_hunt";
+  return "multiplayer";
 }
 
 export function leaveQueue(userId) {
@@ -41,9 +49,9 @@ export function removeSocketFromQueue(socketId) {
   return false;
 }
 
-function findOpponent(userId) {
+function findOpponent(userId, mode) {
   for (const entry of queue.values()) {
-    if (entry.user.id !== userId && entry.socket.connected) return entry;
+    if (entry.user.id !== userId && entry.mode === mode && entry.socket.connected) return entry;
   }
   return null;
 }

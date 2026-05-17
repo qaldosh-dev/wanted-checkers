@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS games (
   player_two_user_id INTEGER REFERENCES users(id),
   mode VARCHAR(30) DEFAULT 'local_pvp',
   ai_difficulty VARCHAR(30),
+  blitz_state JSONB,
   move_history JSONB DEFAULT '[]'::jsonb,
   match_result JSONB,
   created_at TIMESTAMP DEFAULT NOW()
@@ -125,6 +126,7 @@ ALTER TABLE games ADD COLUMN IF NOT EXISTS player_one_user_id INTEGER REFERENCES
 ALTER TABLE games ADD COLUMN IF NOT EXISTS player_two_user_id INTEGER REFERENCES users(id);
 ALTER TABLE games ADD COLUMN IF NOT EXISTS mode VARCHAR(30) DEFAULT 'local_pvp';
 ALTER TABLE games ADD COLUMN IF NOT EXISTS ai_difficulty VARCHAR(30);
+ALTER TABLE games ADD COLUMN IF NOT EXISTS blitz_state JSONB;
 ALTER TABLE games ADD COLUMN IF NOT EXISTS move_history JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE games ADD COLUMN IF NOT EXISTS match_result JSONB;
 

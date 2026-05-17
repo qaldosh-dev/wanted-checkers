@@ -155,6 +155,7 @@ export default function ProfilePage() {
             </h1>
           </div>
           <div className="flex flex-wrap gap-3">
+            <CinematicButton href="/stats">Statistics</CinematicButton>
             <CinematicButton href="/play" variant="dark">Back to Game</CinematicButton>
             <CinematicButton onClick={auth.logout} variant="red">Logout</CinematicButton>
           </div>
@@ -283,6 +284,8 @@ function resultLabel(result) {
 function modeLabel(mode) {
   if (mode === "vs_ai") return "vs AI";
   if (mode === "multiplayer") return "Online Duel";
+  if (mode === "blitz") return "Blitz Duel";
+  if (mode === "blind_hunt") return "Blind Hunt";
   return "Local PvP";
 }
 

@@ -118,6 +118,18 @@ Players can also search by username and send direct challenge invites. Challenge
 are in-memory MVP invites, expire after a short timeout, and create the same live
 multiplayer game room when accepted.
 
+The `/play` page also includes `Blitz Duel` for online matchmaking and direct
+friend/player challenges. Blitz games use server-authoritative clocks: each
+player has 3 minutes total and each active move has a 10-second limit. Timer
+state is stored on `games.blitz_state`, broadcast over Socket.IO, and timeout
+losses are finalized through the normal match result/replay flow.
+
+The `/play` page includes experimental `Blind Hunt` modes for local hot-seat play
+and online matchmaking/challenges. The backend still stores and validates the
+full board; the frontend renders a per-player fog layer so players only see
+their own pieces and nearby squares. Replays for Blind Hunt games can be viewed
+with full vision or either player's vision.
+
 Players select a structured Kazakhstan region during onboarding and profile
 editing. The existing `users.city` column stores only approved region values for
 compatibility. The WANTED Board can show Kazakhstan-wide rankings or a regional

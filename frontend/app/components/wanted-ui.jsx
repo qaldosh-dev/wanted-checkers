@@ -39,6 +39,7 @@ export function BrandNav({ auth, active = "", compact = false }) {
         <NavLink href="/wanted-board" active={active === "board"}>Wanted Board</NavLink>
         <NavLink href="/play" active={active === "play"}>Play</NavLink>
         {auth?.isAuthenticated ? <NavLink href="/profile" active={active === "profile"}>Profile</NavLink> : null}
+        {auth?.isAuthenticated ? <NavLink href="/stats" active={active === "stats"}>Stats</NavLink> : null}
         {!compact && !auth?.isAuthenticated ? <NavLink href="/login" active={active === "login"}>Sign In</NavLink> : null}
       </nav>
     </header>

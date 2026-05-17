@@ -28,7 +28,7 @@ gameRouter.post("/start", requireAuth, async (req, res, next) => {
 
     const game = await createGameRecord(createInitialState(), {
       playerOneUserId: req.user.id,
-      playerTwoUserId: mode === "vs_ai" ? null : opponentUserId ?? null,
+      playerTwoUserId: mode === "vs_ai" || mode === "blind_hunt" ? null : opponentUserId ?? null,
       mode,
       aiDifficulty
     });
@@ -100,7 +100,7 @@ gameRouter.post("/move", requireAuth, async (req, res, next) => {
       res.status(403).json({ error: "You are not a participant in this game." });
       return;
     }
-    if (game.mode === "multiplayer") {
+    if (isSocketOnlyMode(game)) {
       res.status(409).json({ error: "Live multiplayer moves must be sent over WebSockets." });
       return;
     }
@@ -169,8 +169,14 @@ function isParticipant(game, userId) {
   return game.playerOneUserId === userId || game.playerTwoUserId === userId;
 }
 
+function isSocketOnlyMode(game) {
+  return game.mode === "multiplayer" || game.mode === "blitz" || (game.mode === "blind_hunt" && game.playerTwoUserId);
+}
+
 function normalizeGameMode(mode) {
-  return mode === "vs_ai" ? "vs_ai" : "local_pvp";
+  if (mode === "vs_ai") return "vs_ai";
+  if (mode === "blind_hunt" || mode === "blind_hunt_local") return "blind_hunt";
+  return "local_pvp";
 }
 
 function normalizeAiDifficulty(difficulty) {

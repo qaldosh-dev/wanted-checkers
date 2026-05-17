@@ -13,8 +13,15 @@ import {
   formatBounty,
   toAvatarSrc
 } from "../components/wanted-ui";
+import { FogOverlay } from "../components/blindMode/fogRenderer";
+import {
+  BLIND_HUNT_MODE,
+  buildVisibleBoardSquares,
+  isBlindHuntMode
+} from "../components/blindMode/visibilityEngine";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const LIVE_GAME_MODES = ["multiplayer", "blitz", BLIND_HUNT_MODE];
 
 const PIECE_LABELS = {
   1: "P1",
@@ -153,6 +160,7 @@ export default function Home() {
   const [friendRequests, setFriendRequests] = useState([]);
   const [friendsMessage, setFriendsMessage] = useState("");
   const [error, setError] = useState("");
+  const [blitzState, setBlitzState] = useState(null);
   const gameAudio = useGameAudio();
   const previousGameRef = useRef(null);
   const [pieceMotion, setPieceMotion] = useState({
@@ -162,8 +170,16 @@ export default function Home() {
   });
 
   const moveTargets = useMemo(() => new Set(moves.map((move) => move.to)), [moves]);
-  const isMultiplayer = gameMode === "multiplayer" || game?.mode === "multiplayer";
-  const isMyTurn = !game || game.mode !== "multiplayer" || game.currentTurn === playerNumber;
+  const isLiveMode = LIVE_GAME_MODES.includes(gameMode) || isLiveGame(game);
+  const isMyTurn = !game || !isLiveGame(game) || game.currentTurn === playerNumber;
+  const blindVisionPlayer = useMemo(
+    () => getBlindVisionPlayer(game, gameMode, playerNumber),
+    [game, gameMode, playerNumber]
+  );
+  const visibleBoardSquares = useMemo(
+    () => (blindVisionPlayer ? buildVisibleBoardSquares(game?.board ?? EMPTY_BOARD, blindVisionPlayer) : null),
+    [blindVisionPlayer, game?.board]
+  );
 
   const refreshGame = useCallback(async (gameId) => {
     const response = await fetch(`${API_URL}/api/game/state/${gameId}`, { cache: "no-store" });
@@ -231,24 +247,37 @@ export default function Home() {
       const nextPlayerNumber = payload.game.playerOneUserId === auth.user?.id ? 1 : 2;
       setPlayerNumber(nextPlayerNumber);
       setOpponent(nextPlayerNumber === 1 ? payload.players.playerTwo : payload.players.playerOne);
-      setGameMode("multiplayer");
+      setGameMode(liveDraftModeFromGame(payload.game.mode));
       setIsQueueing(false);
       setSelected(null);
       setMoves([]);
       setGame(payload.game);
+      setBlitzState(payload.game.blitzState ?? null);
       setSessionId(payload.game.gameId);
     });
     nextSocket.on("game:update", (payload) => {
       setGame(payload.game);
+      setBlitzState(payload.game.blitzState ?? null);
       setSelected(null);
       setMoves([]);
       setIsLoading(false);
     });
     nextSocket.on("game:finished", (payload) => {
       setGame(payload.game);
+      setBlitzState(payload.game.blitzState ?? null);
       setSelected(null);
       setMoves([]);
       setIsLoading(false);
+    });
+    nextSocket.on("timer:update", (payload) => {
+      setBlitzState(payload.blitzState);
+    });
+    nextSocket.on("timer:timeout", (payload) => {
+      setBlitzState(payload.blitzState);
+      setError(`Player ${payload.loser} lost on time.`);
+    });
+    nextSocket.on("blitz:started", (payload) => {
+      setBlitzState(payload.blitzState ?? payload.game?.blitzState ?? null);
     });
     nextSocket.on("game:error", (payload) => {
       setError(payload.message ?? "Live multiplayer error.");
@@ -299,7 +328,7 @@ export default function Home() {
 
   const startGame = useCallback(async () => {
     if (!auth.isAuthenticated) return;
-    if (gameMode === "multiplayer") {
+    if (LIVE_GAME_MODES.includes(gameMode)) {
       if (!socket?.connected) {
         setError("Live connection is not ready yet.");
         return;
@@ -308,7 +337,7 @@ export default function Home() {
       setError("");
       setSelected(null);
       setMoves([]);
-      socket.emit("queue:join");
+      socket.emit(queueEventForMode(gameMode));
       return;
     }
 
@@ -325,7 +354,7 @@ export default function Home() {
         body: JSON.stringify({
           sessionId: storedSessionId || undefined,
           opponentUserId: gameMode === "local_pvp" && opponentUserId !== "local" ? opponentUserId : undefined,
-          mode: gameMode,
+          mode: gameMode === "blind_hunt_local" ? BLIND_HUNT_MODE : gameMode,
           aiDifficulty: gameMode === "vs_ai" ? aiDifficulty : undefined
         })
       });
@@ -381,7 +410,7 @@ export default function Home() {
 
     setError("");
     setChallengeMessage("");
-    socket.emit("challenge:send", { username });
+    socket.emit("challenge:send", { username, mode: challengeModeForDraft(gameMode) });
   }
 
   async function sendFriendRequest(userId) {
@@ -442,20 +471,20 @@ export default function Home() {
 
   useEffect(() => {
     if (!game?.gameId) return undefined;
-    if (game.mode === "multiplayer") return undefined;
+    if (isLiveGame(game)) return undefined;
 
     const intervalId = window.setInterval(() => {
       refreshGame(game.gameId).catch((caughtError) => setError(caughtError.message));
     }, 1000);
 
     return () => window.clearInterval(intervalId);
-  }, [game?.gameId, refreshGame]);
+  }, [game?.gameId, game?.mode, game?.playerTwoUserId, refreshGame]);
 
   useEffect(() => {
-    if (socket?.connected && game?.mode === "multiplayer" && game.gameId) {
+    if (socket?.connected && isLiveGame(game) && game.gameId) {
       socket.emit("game:join", { gameId: game.gameId });
     }
-  }, [socket, socketStatus, game?.mode, game?.gameId]);
+  }, [socket, socketStatus, game?.mode, game?.gameId, game?.playerTwoUserId]);
 
   useEffect(() => {
     const previousGame = previousGameRef.current;
@@ -502,7 +531,7 @@ export default function Home() {
 
   async function selectSquare(playableIndex) {
     if (!game || game.status !== "ongoing" || isAiThinking) return;
-    if (game.mode === "multiplayer" && !isMyTurn) return;
+    if (isLiveGame(game) && !isMyTurn) return;
 
     if (selected !== null && moveTargets.has(playableIndex)) {
       await submitMove(selected, playableIndex);
@@ -534,7 +563,7 @@ export default function Home() {
   async function submitMove(from, to) {
     if (!game) return;
 
-    if (game.mode === "multiplayer") {
+    if (isLiveGame(game)) {
       if (!socket?.connected) {
         setError("Live connection is not ready.");
         return;
@@ -627,7 +656,7 @@ export default function Home() {
               </CinematicButton>
             ) : null}
             <CinematicButton onClick={startGame} disabled={isLoading || isQueueing}>
-              {gameMode === "multiplayer" ? "Find Match" : "New Game"}
+              {LIVE_GAME_MODES.includes(gameMode) ? "Find Match" : "New Game"}
             </CinematicButton>
           </div>
         </header>
@@ -641,7 +670,9 @@ export default function Home() {
               onSquareClick={selectSquare}
               onMoveAttempt={submitMove}
               onPieceGrab={selectSquare}
-              flipBoard={game?.mode === "multiplayer" && playerNumber === 2}
+              flipBoard={isLiveGame(game) && playerNumber === 2}
+              blindMode={isBlindHuntMode(game?.mode ?? gameMode)}
+              visibleBoardSquares={visibleBoardSquares}
               animations={pieceMotion.animations}
               promotions={pieceMotion.promotions}
               disabled={!game || isLoading || isAiThinking || !isMyTurn}
@@ -660,6 +691,9 @@ export default function Home() {
                 <option value="local_pvp">Local PvP</option>
                 <option value="vs_ai">vs AI</option>
                 <option value="multiplayer">Online Multiplayer</option>
+                <option value="blitz">Blitz Duel</option>
+                <option value="blind_hunt_local">Blind Hunt - Local</option>
+                <option value="blind_hunt">Blind Hunt - Online</option>
               </select>
             </label>
             {gameMode === "vs_ai" ? (
@@ -681,14 +715,16 @@ export default function Home() {
               <select
                 value={opponentUserId}
                 onChange={(event) => setOpponentUserId(event.target.value)}
-                disabled={gameMode === "vs_ai" || gameMode === "multiplayer"}
+                disabled={gameMode === "vs_ai" || gameMode === "blind_hunt_local" || LIVE_GAME_MODES.includes(gameMode)}
                 className="mt-2 h-10 w-full rounded-md border border-stone-950/50 bg-stone-950/15 px-3 font-black text-stone-950 outline-none focus:border-red-900"
               >
                 <option value="local">
                   {gameMode === "vs_ai"
                     ? `AI - ${labelDifficulty(aiDifficulty)}`
-                    : gameMode === "multiplayer"
-                      ? "Matchmaking Queue"
+                    : gameMode === "blind_hunt_local"
+                      ? "Local Blind Hunt"
+                    : LIVE_GAME_MODES.includes(gameMode)
+                      ? queueLabel(gameMode)
                       : "Local Player 2"}
                 </option>
                 {players
@@ -702,10 +738,13 @@ export default function Home() {
             </label>
             <InfoRow label="Game" value={game?.gameId ? shortId(game.gameId) : "Starting"} />
             <InfoRow label="Mode" value={game ? modeLabel(game) : modeDraftLabel(gameMode, aiDifficulty)} />
-            {isMultiplayer ? <InfoRow label="Socket" value={socketStatus} /> : null}
-            {isMultiplayer ? <InfoRow label="You are" value={playerNumber ? `Player ${playerNumber}` : "Unassigned"} /> : null}
-            {isMultiplayer ? <InfoRow label="Opponent" value={opponent?.username ?? (isQueueing ? "Searching" : "Waiting")} /> : null}
-            {isMultiplayer ? (
+            {isLiveMode ? <InfoRow label="Socket" value={socketStatus} /> : null}
+            {isLiveMode ? <InfoRow label="You are" value={playerNumber ? `Player ${playerNumber}` : "Unassigned"} /> : null}
+            {isLiveMode ? <InfoRow label="Opponent" value={opponent?.username ?? (isQueueing ? "Searching" : "Waiting")} /> : null}
+            {game?.mode === "blitz" || gameMode === "blitz" ? (
+              <BlitzClockPanel blitzState={blitzState ?? game?.blitzState} playerNumber={playerNumber} />
+            ) : null}
+            {isLiveMode ? (
               <ChallengePanel
                 query={playerSearch}
                 onQueryChange={setPlayerSearch}
@@ -718,7 +757,7 @@ export default function Home() {
                 disabled={!socket?.connected}
               />
             ) : null}
-            {isMultiplayer ? (
+            {isLiveMode ? (
               <FriendsPanel
                 friends={friends}
                 requests={friendRequests}
@@ -744,7 +783,7 @@ export default function Home() {
                 Waiting for opponent...
               </div>
             ) : null}
-            {game?.mode === "multiplayer" && game.status === "ongoing" ? (
+            {isLiveGame(game) && game.status === "ongoing" ? (
               <button
                 type="button"
                 onClick={() => socket?.emit("game:resign", { gameId: game.gameId })}
@@ -772,6 +811,8 @@ function Board({
   onMoveAttempt,
   onPieceGrab,
   flipBoard = false,
+  blindMode = false,
+  visibleBoardSquares = null,
   animations,
   promotions,
   disabled
@@ -879,6 +920,8 @@ function Board({
           const piece = playableIndex === null ? 0 : board[playableIndex];
           const isSelected = selected === playableIndex;
           const isMoveTarget = playableIndex !== null && moveTargets.has(playableIndex);
+          const isHiddenByFog = blindMode && !visibleBoardSquares?.has(square);
+          const canInteract = !isHiddenByFog || isMoveTarget;
           const isDragging = dragState?.playableIndex === playableIndex;
           const isSnappingBack = snapBack?.playableIndex === playableIndex;
           const rawAnimation = playableIndex !== null ? animations[playableIndex] : null;
@@ -892,23 +935,24 @@ function Board({
             <button
               key={square}
               type="button"
-              disabled={!isPlayable || disabled}
+              disabled={!isPlayable || disabled || !canInteract}
               onClick={() => {
                 if (suppressClickRef.current) {
                   suppressClickRef.current = false;
                   return;
                 }
-                if (playableIndex !== null) onSquareClick(playableIndex);
+                if (playableIndex !== null && canInteract) onSquareClick(playableIndex);
               }}
               className={[
                 "relative flex items-center justify-center",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-0",
                 isPlayable ? "game-square-dark hover:brightness-125" : "game-square-light",
+                isHiddenByFog ? "blind-square-hidden" : "",
                 isSelected ? "inset-ring" : ""
               ].join(" ")}
               aria-label={isPlayable ? `Playable square ${playableIndex}` : "Light square"}
             >
-              {piece !== 0 ? (
+              {piece !== 0 && !isHiddenByFog ? (
                 <Piece
                   piece={piece}
                   selected={isSelected}
@@ -921,7 +965,8 @@ function Board({
                   onPointerCancel={endPieceDrag}
                 />
               ) : null}
-              {isMoveTarget ? <span className="valid-move-dot absolute h-4 w-4 rounded-full bg-amber-300/90 shadow-[0_0_18px_rgba(242,193,78,0.9)]" /> : null}
+              {isMoveTarget ? <span className="valid-move-dot absolute z-30 h-4 w-4 rounded-full bg-amber-300/90 shadow-[0_0_18px_rgba(242,193,78,0.9)]" /> : null}
+              <FogOverlay hidden={isHiddenByFog} />
             </button>
           );
         })}
@@ -1229,7 +1274,7 @@ function playableDistance(left, right) {
 function resolveResultEffect(game, playerNumber) {
   if (game.status === "draw") return "draw";
   if (game.status !== "finished") return null;
-  const ownPlayer = game.mode === "multiplayer" && playerNumber ? playerNumber : 1;
+  const ownPlayer = isLiveGame(game) && playerNumber ? playerNumber : 1;
   return game.winner === ownPlayer ? "victory" : "defeat";
 }
 
@@ -1255,6 +1300,41 @@ function InfoRow({ label, value }) {
     <div className="flex items-center justify-between gap-4 border-b border-stone-950/30 pb-3 text-sm">
       <span className="font-black uppercase text-stone-800">{label}</span>
       <span className="max-w-[170px] truncate font-black text-stone-950">{value}</span>
+    </div>
+  );
+}
+
+function BlitzClockPanel({ blitzState, playerNumber }) {
+  const playerOneMs = Number(blitzState?.playerClocks?.[1] ?? blitzState?.playerClocks?.["1"] ?? 180000);
+  const playerTwoMs = Number(blitzState?.playerClocks?.[2] ?? blitzState?.playerClocks?.["2"] ?? 180000);
+  const activePlayer = Number(blitzState?.activePlayer ?? 1);
+  const moveMs = Number(blitzState?.moveRemainingMs ?? 10000);
+
+  return (
+    <div className="rounded-md border border-red-900/40 bg-red-950/10 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase text-red-900">Blitz Duel</p>
+          <p className="text-sm font-bold text-stone-800">3:00 total - 10s move timer</p>
+        </div>
+        <div className={`rounded-md border px-3 py-2 text-xl font-black ${moveMs <= 3000 ? "border-red-800 bg-red-950 text-red-100 blitz-warning" : "border-stone-950/40 bg-stone-950/10 text-stone-950"}`}>
+          {Math.ceil(moveMs / 1000)}s
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <ClockCard label={playerNumber === 1 ? "You - P1" : "Player 1"} value={playerOneMs} active={activePlayer === 1} />
+        <ClockCard label={playerNumber === 2 ? "You - P2" : "Player 2"} value={playerTwoMs} active={activePlayer === 2} />
+      </div>
+    </div>
+  );
+}
+
+function ClockCard({ label, value, active }) {
+  const low = value <= 10000;
+  return (
+    <div className={`rounded-md border p-2 ${active ? "border-amber-700 bg-amber-300/20" : "border-stone-950/30 bg-stone-950/10"} ${low ? "blitz-warning" : ""}`}>
+      <p className="text-[10px] font-black uppercase text-stone-700">{label}</p>
+      <p className={`text-2xl font-black ${low ? "text-red-950" : "text-stone-950"}`}>{formatClock(value)}</p>
     </div>
   );
 }
@@ -1411,6 +1491,9 @@ function IncomingChallengePanel({ challenge, onAccept, onDecline }) {
       <p className="mt-1 font-black">
         {challenge.challenger.username} challenged you to a duel
       </p>
+      <p className="mt-1 text-xs font-black uppercase text-stone-800">
+        {liveModeLabel(challenge.mode)}
+      </p>
       <div className="mt-3 flex gap-2">
         <button type="button" onClick={onAccept} className="poster-button flex-1 px-3 py-2 text-xs">
           Accept
@@ -1466,6 +1549,11 @@ function BountyResultPanel({ matchResult, winner, resultEffect, onRestart }) {
     <div className={`poster-panel result-panel ${resultEffect === "defeat" ? "result-panel-defeat" : "result-panel-victory"} p-5 text-stone-950`}>
       <p className="text-sm font-black uppercase text-red-900">BOUNTY UPDATED</p>
       <p className="mt-2 text-3xl font-black tracking-normal">{matchResult.winnerDisplayName}</p>
+      {matchResult.timeout ? (
+        <p className="mt-3 rounded-md border border-red-900/40 bg-red-950/15 p-3 text-sm font-black uppercase text-red-950">
+          {matchResult.message}
+        </p>
+      ) : null}
       <div className="bounty-text mt-3 text-4xl">
         {matchResult.localOnly ? "Local Match" : `+${formatBounty(matchResult.bountyGain)}`}
       </div>
@@ -1530,8 +1618,15 @@ function shortId(value) {
   return `${value.slice(0, 8)}...`;
 }
 
+function formatClock(value) {
+  const totalSeconds = Math.max(0, Math.ceil(Number(value ?? 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function turnLabel(game, username, playerNumber, opponentName) {
-  if (game.mode === "multiplayer") {
+  if (LIVE_GAME_MODES.includes(game.mode) && playerNumber) {
     if (game.currentTurn === playerNumber) return "Your turn";
     return `${opponentName ?? "Opponent"} to move`;
   }
@@ -1540,15 +1635,61 @@ function turnLabel(game, username, playerNumber, opponentName) {
   return game.playerTwoUserId ? "Player 2" : "Local Player 2";
 }
 
+function getBlindVisionPlayer(game, gameMode, playerNumber) {
+  const mode = game?.mode ?? gameMode;
+  if (!isBlindHuntMode(mode)) return null;
+  if (isLiveGame(game) && playerNumber) return playerNumber;
+  return game?.currentTurn ?? 1;
+}
+
+function isLiveGame(game) {
+  return Boolean(game?.playerTwoUserId && LIVE_GAME_MODES.includes(game.mode));
+}
+
+function queueEventForMode(gameMode) {
+  if (gameMode === "blitz") return "queue:join_blitz";
+  if (gameMode === BLIND_HUNT_MODE) return "queue:join_blind";
+  return "queue:join";
+}
+
+function challengeModeForDraft(gameMode) {
+  if (gameMode === "blitz") return "blitz";
+  if (gameMode === BLIND_HUNT_MODE) return BLIND_HUNT_MODE;
+  return "multiplayer";
+}
+
+function liveDraftModeFromGame(mode) {
+  if (mode === "blitz") return "blitz";
+  if (mode === BLIND_HUNT_MODE) return BLIND_HUNT_MODE;
+  return "multiplayer";
+}
+
+function queueLabel(gameMode) {
+  if (gameMode === "blitz") return "Blitz Queue";
+  if (gameMode === BLIND_HUNT_MODE) return "Blind Hunt Queue";
+  return "Matchmaking Queue";
+}
+
+function liveModeLabel(mode) {
+  if (mode === "blitz") return "Blitz Duel";
+  if (mode === BLIND_HUNT_MODE) return "Blind Hunt Mode";
+  return "Online Multiplayer";
+}
+
 function modeLabel(game) {
   if (game.mode === "vs_ai") return `vs AI - ${labelDifficulty(game.aiDifficulty)}`;
   if (game.mode === "multiplayer") return "Online Multiplayer";
+  if (game.mode === "blitz") return "Blitz Duel";
+  if (game.mode === BLIND_HUNT_MODE) return game.playerTwoUserId ? "Blind Hunt - Online" : "Blind Hunt - Local";
   return "Local PvP";
 }
 
 function modeDraftLabel(gameMode, aiDifficulty) {
   if (gameMode === "vs_ai") return `vs AI - ${labelDifficulty(aiDifficulty)}`;
   if (gameMode === "multiplayer") return "Online Multiplayer";
+  if (gameMode === "blitz") return "Blitz Duel";
+  if (gameMode === "blind_hunt") return "Blind Hunt - Online";
+  if (gameMode === "blind_hunt_local") return "Blind Hunt - Local";
   return "Local PvP";
 }
 

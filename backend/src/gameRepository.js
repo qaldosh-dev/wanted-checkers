@@ -14,9 +14,10 @@ export async function createGameRecord(state, players = {}) {
        player_two_user_id,
        mode,
        ai_difficulty,
+       blitz_state,
        move_history
      )
-     VALUES ($1::jsonb, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+     VALUES ($1::jsonb, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb)
      RETURNING id,
                board,
                current_turn,
@@ -29,6 +30,7 @@ export async function createGameRecord(state, players = {}) {
                player_two_user_id,
                mode,
                ai_difficulty,
+               blitz_state,
                move_history,
                match_result,
                created_at`,
@@ -44,6 +46,7 @@ export async function createGameRecord(state, players = {}) {
       players.playerTwoUserId,
       players.mode ?? "local_pvp",
       players.aiDifficulty ?? null,
+      players.blitzState ? JSON.stringify(players.blitzState) : null,
       JSON.stringify(state.moveHistory ?? [])
     ]
   );
@@ -65,6 +68,7 @@ export async function findGameRecord(gameId) {
             player_two_user_id,
             mode,
             ai_difficulty,
+            blitz_state,
             move_history,
             match_result,
             created_at
@@ -91,7 +95,8 @@ export async function updateGameRecord(gameId, state, options = {}) {
          status = $7,
          winner = $8,
          match_result = $9::jsonb,
-         move_history = $10::jsonb
+         move_history = $10::jsonb,
+         blitz_state = $11::jsonb
      WHERE id = $1
      RETURNING id,
                board,
@@ -105,6 +110,7 @@ export async function updateGameRecord(gameId, state, options = {}) {
                player_two_user_id,
                mode,
                ai_difficulty,
+               blitz_state,
                move_history,
                match_result,
                created_at`,
@@ -118,7 +124,8 @@ export async function updateGameRecord(gameId, state, options = {}) {
       state.status,
       state.winner,
       matchResult ? JSON.stringify(matchResult) : null,
-      JSON.stringify(moveHistory)
+      JSON.stringify(moveHistory),
+      state.blitzState || options.blitzState ? JSON.stringify(state.blitzState ?? options.blitzState) : null
     ]
   );
 
@@ -140,6 +147,7 @@ export function mapGameRow(row) {
     playerTwoUserId: row.player_two_user_id,
     mode: row.mode ?? "local_pvp",
     aiDifficulty: row.ai_difficulty,
+    blitzState: row.blitz_state,
     moveHistory: row.move_history ?? [],
     matchResult: row.match_result,
     createdAt: row.created_at

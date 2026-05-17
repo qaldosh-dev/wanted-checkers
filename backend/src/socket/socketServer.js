@@ -39,7 +39,21 @@ export function attachSocketServer(httpServer) {
 
     socket.on("queue:join", async () => {
       await safely(socket, async () => {
-        const match = joinQueue(socket);
+        const match = joinQueue(socket, { mode: "multiplayer" });
+        if (match) await createMultiplayerGame(io, match);
+      });
+    });
+
+    socket.on("queue:join_blitz", async () => {
+      await safely(socket, async () => {
+        const match = joinQueue(socket, { mode: "blitz" });
+        if (match) await createMultiplayerGame(io, match);
+      });
+    });
+
+    socket.on("queue:join_blind", async () => {
+      await safely(socket, async () => {
+        const match = joinQueue(socket, { mode: "blind_hunt" });
         if (match) await createMultiplayerGame(io, match);
       });
     });
@@ -50,7 +64,7 @@ export function attachSocketServer(httpServer) {
 
     socket.on("game:join", async (payload) => {
       await safely(socket, async () => {
-        await joinExistingGame(socket, payload?.gameId);
+        await joinExistingGame(io, socket, payload?.gameId);
       });
     });
 

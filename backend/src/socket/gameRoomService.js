@@ -11,12 +11,22 @@ import {
 } from "../gameRepository.js";
 import { completeMatchWithBounty } from "../matchResultService.js";
 import { appendReplayEvent, appendReplayMove } from "../replay/moveHistory.js";
+import { createInitialBlitzState, advanceBlitzAfterMove } from "../blitz/blitzClock.js";
+import {
+  broadcastBlitzTimer,
+  enforceBlitzTimeout,
+  isBlitzMode,
+  startBlitzTimer,
+  stopBlitzTimer
+} from "../blitz/timerService.js";
 
 export async function createMultiplayerGame(io, match) {
+  const mode = normalizeLiveMode(match.mode);
   const game = await createGameRecord(createInitialState(), {
     playerOneUserId: match.playerOne.user.id,
     playerTwoUserId: match.playerTwo.user.id,
-    mode: "multiplayer"
+    mode,
+    blitzState: mode === "blitz" ? createInitialBlitzState() : null
   });
 
   joinSocketToGame(match.playerOne.socket, game.gameId);
@@ -25,31 +35,41 @@ export async function createMultiplayerGame(io, match) {
   const room = gameRoomName(game.gameId);
   io.to(room).emit("queue:matched", {
     game,
+    mode,
     players: {
       playerOne: publicUser(match.playerOne.user),
       playerTwo: publicUser(match.playerTwo.user)
     }
   });
+  if (isBlitzMode(mode)) {
+    io.to(room).emit("blitz:started", { game, blitzState: game.blitzState });
+    startBlitzTimer(io, game.gameId);
+    broadcastBlitzTimer(io, game);
+  }
 
   return game;
 }
 
-export async function joinExistingGame(socket, gameId) {
+export async function joinExistingGame(io, socket, gameId) {
   const game = await findGameRecord(gameId);
   if (!game) throw new Error("Game not found.");
-  if (game.mode !== "multiplayer") throw new Error("This is not a multiplayer game.");
+  if (!isLiveMultiplayerMode(game.mode)) throw new Error("This is not a multiplayer game.");
   if (!isParticipant(game, socket.data.user.id)) throw new Error("You are not a participant in this game.");
 
   joinSocketToGame(socket, game.gameId);
   socket.emit("game:update", { game });
+  broadcastBlitzTimer(io, game);
+  if (isBlitzMode(game.mode) && game.status === "ongoing") startBlitzTimer(io, game.gameId);
   return game;
 }
 
 export async function handleMultiplayerMove(io, socket, payload) {
-  const game = await findGameRecord(payload?.gameId);
+  let game = await findGameRecord(payload?.gameId);
   if (!game) throw new Error("Game not found.");
-  if (game.mode !== "multiplayer") throw new Error("This game is not a live multiplayer match.");
+  if (!isLiveMultiplayerMode(game.mode)) throw new Error("This game is not a live multiplayer match.");
   if (game.status !== "ongoing") throw new Error("Game is already finished.");
+  game = await enforceBlitzTimeout(io, game);
+  if (game.status !== "ongoing") return game;
 
   const playerNumber = playerNumberForUser(game, socket.data.user.id);
   if (!playerNumber) throw new Error("You are not a participant in this game.");
@@ -63,19 +83,24 @@ export async function handleMultiplayerMove(io, socket, payload) {
 
   const nextState = applyMove(engineState, legalMove);
   const moveHistory = appendReplayMove(game.moveHistory, engineState, legalMove, nextState, playerNumber);
+  const blitzState = isBlitzMode(game.mode) && nextState.status === "ongoing"
+    ? advanceBlitzAfterMove(game.blitzState, nextState.currentTurn)
+    : game.blitzState;
   const updated =
     nextState.status !== "ongoing"
-      ? await completeMatchWithBounty(game, { ...nextState, moveHistory })
-      : await updateGameRecord(game.gameId, { ...nextState, moveHistory });
+      ? await completeMatchWithBounty(game, { ...nextState, moveHistory, blitzState: blitzState ? { ...blitzState, finished: true } : blitzState })
+      : await updateGameRecord(game.gameId, { ...nextState, moveHistory, blitzState });
 
   broadcastGame(io, updated);
+  broadcastBlitzTimer(io, updated);
+  if (updated.status !== "ongoing") stopBlitzTimer(updated.gameId);
   return updated;
 }
 
 export async function handleResign(io, socket, payload) {
   const game = await findGameRecord(payload?.gameId);
   if (!game) throw new Error("Game not found.");
-  if (game.mode !== "multiplayer") throw new Error("This game is not a live multiplayer match.");
+  if (!isLiveMultiplayerMode(game.mode)) throw new Error("This game is not a live multiplayer match.");
   if (game.status !== "ongoing") throw new Error("Game is already finished.");
 
   const playerNumber = playerNumberForUser(game, socket.data.user.id);
@@ -87,6 +112,7 @@ export async function handleResign(io, socket, payload) {
     status: "finished",
     winner,
     forcedFrom: null,
+    blitzState: game.blitzState ? { ...game.blitzState, finished: true } : null,
     moveHistory: appendReplayEvent(game.moveHistory, { ...toEngineState(game), status: "finished", winner }, {
       player: playerNumber,
       type: "resign",
@@ -95,6 +121,7 @@ export async function handleResign(io, socket, payload) {
   };
   const updated = await completeMatchWithBounty(game, nextState);
   broadcastGame(io, updated);
+  stopBlitzTimer(updated.gameId);
   return updated;
 }
 
@@ -110,6 +137,16 @@ function broadcastGame(io, game) {
   const event = game.status === "ongoing" ? "game:update" : "game:finished";
   io.to(gameRoomName(game.gameId)).emit(event, { game });
   if (event !== "game:update") io.to(gameRoomName(game.gameId)).emit("game:update", { game });
+}
+
+function isLiveMultiplayerMode(mode) {
+  return mode === "multiplayer" || mode === "blitz" || mode === "blind_hunt";
+}
+
+function normalizeLiveMode(mode) {
+  if (mode === "blitz") return "blitz";
+  if (mode === "blind_hunt") return "blind_hunt";
+  return "multiplayer";
 }
 
 function joinSocketToGame(socket, gameId) {

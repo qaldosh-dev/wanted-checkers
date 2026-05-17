@@ -13,6 +13,7 @@ const challengeKeys = new Map();
 export async function sendChallenge(socket, payload) {
   const targetUsername = String(payload?.username ?? "").trim();
   if (!targetUsername) throw new Error("Target username is required.");
+  const mode = normalizeChallengeMode(payload?.mode);
 
   const targetUser = await findUserByUsername(targetUsername);
   if (!targetUser) throw new Error("Player not found.");
@@ -26,6 +27,7 @@ export async function sendChallenge(socket, payload) {
     id: randomUUID(),
     challengerUser: publicUser(socket.data.user),
     targetUser: publicUser(targetUser),
+    mode,
     createdAt: Date.now(),
     expiresAt: Date.now() + CHALLENGE_TTL_MS
   };
@@ -37,6 +39,12 @@ export async function sendChallenge(socket, payload) {
   emitToUser(targetUser.id, "challenge:received", { challenge: publicChallenge(challenge) });
   socket.emit("challenge:sent", { challenge: publicChallenge(challenge) });
   return challenge;
+}
+
+function normalizeChallengeMode(mode) {
+  if (mode === "blitz") return "blitz";
+  if (mode === "blind_hunt") return "blind_hunt";
+  return "multiplayer";
 }
 
 export function acceptChallenge(socket, payload) {
@@ -55,6 +63,7 @@ export function acceptChallenge(socket, payload) {
       socket,
       user: socket.data.user
     },
+    mode: challenge.mode,
     challenge: publicChallenge(challenge)
   };
 }
@@ -110,6 +119,7 @@ function publicChallenge(challenge) {
     id: challenge.id,
     challenger: challenge.challengerUser,
     target: challenge.targetUser,
+    mode: challenge.mode,
     expiresAt: challenge.expiresAt
   };
 }

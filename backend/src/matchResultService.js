@@ -27,10 +27,10 @@ export async function completeMatchWithBounty(game, state, dependencies = {}) {
       return completeHumanVsAiWin(game, state, persistGame);
     }
 
-    const matchResult = buildLocalMatchResult(
+    const matchResult = withBlitzResult(state, buildLocalMatchResult(
       state.winner,
       "AI opponent game: bounty updates are only awarded when the human wins."
-    );
+    ));
     return withTransaction(async (client) => {
       if (isIntegerUserId(game.playerOneUserId)) {
         await createMatchRecord(game.gameId, null, game.playerOneUserId, matchResult, { client });
@@ -47,7 +47,7 @@ export async function completeMatchWithBounty(game, state, dependencies = {}) {
   }
 
   if (!game.playerOneUserId || !game.playerTwoUserId) {
-    const matchResult = buildLocalMatchResult(state.winner);
+    const matchResult = withBlitzResult(state, buildLocalMatchResult(state.winner));
     return withTransaction(async (client) => {
       if (isIntegerUserId(game.playerOneUserId)) {
         await createMatchRecord(
@@ -84,12 +84,12 @@ export async function completeMatchWithBounty(game, state, dependencies = {}) {
       throw new Error("Player stats are missing for match finalization.");
     }
 
-    const matchResult = calculateBountyResult({
+    const matchResult = withBlitzResult(state, calculateBountyResult({
       board: state.board,
       winner: state.winner,
       winnerStats,
       loserStats
-    });
+    }));
 
     await updatePlayerStats(buildUpdatedWinnerStats(winnerStats, matchResult), { client });
     await updatePlayerStats(buildUpdatedLoserStats(loserStats, matchResult), { client });
@@ -107,7 +107,7 @@ export async function completeMatchWithBounty(game, state, dependencies = {}) {
 }
 
 async function completeDrawMatch(game, state, persistGame) {
-  const matchResult = buildDrawMatchResult(state.drawReason);
+  const matchResult = withBlitzResult(state, buildDrawMatchResult(state.drawReason));
   const shouldStoreMatch = isIntegerUserId(game.playerOneUserId);
 
   if (!shouldStoreMatch) {
@@ -152,7 +152,7 @@ async function completeHumanVsAiWin(game, state, persistGame) {
       bestWinStreak: 0,
       tier: "Unknown"
     };
-    const matchResult = {
+    const matchResult = withBlitzResult(state, {
       ...calculateBountyResult({
         board: state.board,
         winner: 1,
@@ -161,7 +161,7 @@ async function completeHumanVsAiWin(game, state, persistGame) {
       }),
       aiMatch: true,
       aiDifficulty: game.aiDifficulty ?? "beginner"
-    };
+    });
 
     await updatePlayerStats(buildUpdatedWinnerStats(winnerStats, matchResult), { client });
     await createMatchRecord(game.gameId, game.playerOneUserId, null, matchResult, { client });
@@ -209,6 +209,18 @@ function buildDrawMatchResult(drawReason) {
     streakMultiplier: 1,
     bonusesApplied: [],
     message: "NO PLAYER COULD CLAIM THE BOUNTY"
+  };
+}
+
+function withBlitzResult(state, matchResult) {
+  if (!state.blitzState?.timeoutLoser) return matchResult;
+  return {
+    ...matchResult,
+    blitz: true,
+    timeout: true,
+    timeoutLoser: state.blitzState.timeoutLoser,
+    timeoutWinner: state.blitzState.timeoutWinner ?? state.winner,
+    message: `Player ${state.blitzState.timeoutLoser} lost on time.`
   };
 }
 

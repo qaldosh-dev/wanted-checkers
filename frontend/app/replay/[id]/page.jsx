@@ -10,6 +10,11 @@ import {
   PosterPanel,
   formatBounty
 } from "../../components/wanted-ui";
+import { FogOverlay } from "../../components/blindMode/fogRenderer";
+import {
+  BLIND_HUNT_MODE,
+  buildVisibleBoardSquares
+} from "../../components/blindMode/visibilityEngine";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -32,6 +37,7 @@ export default function ReplayPage({ params }) {
   const [coachError, setCoachError] = useState("");
   const [isCoachLoading, setIsCoachLoading] = useState(false);
   const [activeInsightId, setActiveInsightId] = useState("");
+  const [visionMode, setVisionMode] = useState("full");
 
   useEffect(() => {
     if (!auth.isAuthLoading && !auth.isAuthenticated) router.push("/login");
@@ -51,6 +57,7 @@ export default function ReplayPage({ params }) {
         if (!response.ok) throw new Error(payload.error ?? "Could not load replay.");
         setReplay(payload);
         setStep(0);
+        setVisionMode("full");
       } catch (caughtError) {
         setError(caughtError.message);
       }
@@ -64,6 +71,7 @@ export default function ReplayPage({ params }) {
   const board = snapshots[Math.min(step, maxStep)] ?? Array(32).fill(0);
   const currentMove = step > 0 ? replay?.moves?.[step - 1] : null;
   const bountyChange = useMemo(() => resolveBountyChange(replay), [replay]);
+  const visionPlayer = visionMode === "p1" ? 1 : visionMode === "p2" ? 2 : null;
 
   async function analyzeMatch() {
     setIsCoachLoading(true);
@@ -149,7 +157,7 @@ export default function ReplayPage({ params }) {
         {replay ? (
           <section className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
             <div className="mx-auto w-full max-w-[720px]">
-              <ReplayBoard board={board} lastMove={currentMove} />
+              <ReplayBoard board={board} lastMove={currentMove} visionPlayer={visionPlayer} />
             </div>
 
             <PosterPanel className="space-y-4 p-5">
@@ -166,6 +174,28 @@ export default function ReplayPage({ params }) {
               <InfoRow label="Bounty" value={`${bountyChange > 0 ? "+" : ""}${formatBounty(bountyChange)}`} />
               <InfoRow label="Move" value={`${step} / ${maxStep}`} />
               <InfoRow label="Date" value={formatDate(replay.createdAt)} />
+
+              {replay.mode === BLIND_HUNT_MODE ? (
+                <div className="rounded-md border border-stone-950/30 bg-stone-950/10 p-3">
+                  <p className="text-xs font-black uppercase text-stone-700">Blind Hunt Vision</p>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {[
+                      ["full", "Full"],
+                      ["p1", "P1"],
+                      ["p2", "P2"]
+                    ].map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setVisionMode(value)}
+                        className={visionMode === value ? "poster-button px-2 py-2 text-xs" : "dark-button px-2 py-2 text-xs"}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="rounded-md border border-stone-950/30 bg-stone-950/10 p-3">
                 <p className="text-xs font-black uppercase text-stone-700">Current Step</p>
@@ -291,8 +321,12 @@ function CoachPanel({ analysis, usage, error, isLoading, activeInsightId, onAnal
   );
 }
 
-function ReplayBoard({ board, lastMove }) {
+function ReplayBoard({ board, lastMove, visionPlayer }) {
   const highlighted = new Set([lastMove?.from, lastMove?.to].filter((value) => Number.isInteger(value)));
+  const visibleBoardSquares = useMemo(
+    () => (visionPlayer ? buildVisibleBoardSquares(board, visionPlayer) : null),
+    [board, visionPlayer]
+  );
 
   return (
     <div className="game-board-frame aspect-square w-full overflow-hidden p-2">
@@ -304,6 +338,7 @@ function ReplayBoard({ board, lastMove }) {
           const playableIndex = isPlayable ? row * 4 + Math.floor(col / 2) : null;
           const piece = playableIndex === null ? 0 : board[playableIndex];
           const isHighlighted = playableIndex !== null && highlighted.has(playableIndex);
+          const isHiddenByFog = Boolean(visibleBoardSquares && !visibleBoardSquares.has(square));
 
           return (
             <div
@@ -311,10 +346,12 @@ function ReplayBoard({ board, lastMove }) {
               className={[
                 "relative flex items-center justify-center",
                 isPlayable ? "game-square-dark" : "game-square-light",
+                isHiddenByFog ? "blind-square-hidden" : "",
                 isHighlighted ? "inset-ring" : ""
               ].join(" ")}
             >
-              {piece !== 0 ? <ReplayPiece piece={piece} /> : null}
+              {piece !== 0 && !isHiddenByFog ? <ReplayPiece piece={piece} /> : null}
+              <FogOverlay hidden={isHiddenByFog} />
             </div>
           );
         })}
@@ -351,6 +388,7 @@ function InfoRow({ label, value }) {
 
 function moveLabel(move) {
   if (move.type === "resign") return `Player ${move.player} resigned`;
+  if (move.type === "timeout") return `Player ${move.player} lost on time`;
   const capture = move.capturedSquares?.length ? " capture" : "";
   const promoted = move.promoted ? " promotion" : "";
   return `P${move.player}: ${move.from} to ${move.to}${capture}${promoted}`;
@@ -365,6 +403,8 @@ function resultLabel(result) {
 function modeLabel(mode) {
   if (mode === "vs_ai") return "vs AI";
   if (mode === "multiplayer") return "Online Duel";
+  if (mode === "blitz") return "Blitz Duel";
+  if (mode === BLIND_HUNT_MODE) return "Blind Hunt";
   return "Local PvP";
 }
 

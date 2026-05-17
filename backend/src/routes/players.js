@@ -1,5 +1,6 @@
 import express from "express";
 import { requireAuth } from "../auth/middleware.js";
+import { getPlayerStatsDashboard } from "../playerStatsDashboard.js";
 import { getPlayerRanking, listPlayerStats } from "../playerStatsRepository.js";
 import { isValidKazakhstanRegion } from "../regions/kazakhstanRegions.js";
 
@@ -28,6 +29,15 @@ playersRouter.get("/rank/me", requireAuth, async (req, res, next) => {
   try {
     const ranking = await getPlayerRanking(req.user.id);
     res.json({ ranking });
+  } catch (error) {
+    next(error);
+  }
+});
+
+playersRouter.get("/me/stats", requireAuth, async (req, res, next) => {
+  try {
+    const stats = await getPlayerStatsDashboard(req.user.id);
+    res.json({ stats });
   } catch (error) {
     next(error);
   }
