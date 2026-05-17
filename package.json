@@ -8,6 +8,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:backend": "node backend/src/server.js",
     "dev:frontend": "next dev frontend",
+    "build": "next build frontend",
     "test": "node --test backend/test/*.test.js"
   },
   "dependencies": {
