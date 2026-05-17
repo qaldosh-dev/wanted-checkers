@@ -1,246 +1,177 @@
 # WANTED CHECKERS
 
-Minimal playable MVP checkers game.
+**A cinematic multiplayer checkers platform where every victory raises your bounty.**
 
-## Stack
+WANTED CHECKERS transforms classic checkers into a competitive bounty arena with live multiplayer, AI coaching, replays, player profiles, regional leaderboards, and a dramatic WANTED-poster identity.
 
-- Frontend: Next.js 14 App Router, React, Tailwind CSS
-- Backend: Node.js, Express REST API
-- Database: PostgreSQL
-- Auth: Google Identity Services plus JWT sessions
+---
 
-## Setup
+## Preview
 
-1. Install dependencies:
+> Screenshots will be added here.
 
-   ```bash
-   npm install
-   ```
+## Landing Page
 
-2. Create PostgreSQL database and enable `pgcrypto`, then apply schema:
+![Landing Page](./screenshots/landing.png)
 
-   ```bash
-   psql "$DATABASE_URL" -f backend/src/schema.sql
-   ```
+---
 
-3. Copy environment variables:
+## Gameplay Board
 
-   ```bash
-   cp .env.example .env
-   ```
+![Gameplay](./screenshots/gameplay.png)
 
-4. Run tests:
+---
 
-   ```bash
-   npm test
-   ```
+## Blitz Duel
 
-5. Start backend and frontend:
+![Blitz Duel](./screenshots/blitz.png)
 
-   ```bash
-   npm run dev
-   ```
+---
 
-Frontend opens at `http://localhost:3000`, backend at `http://localhost:4000`.
-The landing page is `/`, the playable board is `/play`, and the leaderboard is
-`/wanted-board`.
+## Blind Hunt Mode
 
-## Google OAuth
+![Blind Hunt](./screenshots/blind-hunt.png)
 
-WANTED CHECKERS uses Google-only authentication. Google Identity Services runs
-in the browser and the Express backend verifies the
-returned ID token on the Express backend with `google-auth-library`.
+---
 
-Google login is enabled only when `GOOGLE_CLIENT_ID` is set. If it is missing,
-the login page shows a disabled `Google login is not configured` button.
+## AI Coach Replay
 
-1. Create an OAuth 2.0 Client ID in Google Cloud Console.
-2. Set the authorized JavaScript origin to:
+![AI Coach Replay](./screenshots/ai-coach.png)
 
-   ```text
-   http://localhost:3000
-   ```
+---
 
-3. Add the client ID to `.env`:
+## WANTED Board
 
-   ```bash
-   GOOGLE_CLIENT_ID=your-google-client-id
-   GROK_API_KEY=optional-grok-api-key
-   GROK_MODEL=grok-2-latest
-   ```
+![WANTED Board](./screenshots/wanted-board.png)
 
-No `GOOGLE_CLIENT_SECRET` or redirect URI is required for this ID-token flow.
-For production, add your deployed frontend origin to the same Google OAuth
-client.
+---
 
-## Deployment
+## Profile / Statistics
 
-Current production targets:
+![Profile](./screenshots/profile.png)
 
-- Database: Neon PostgreSQL
-- Backend: Render at `https://wanted-checkers.onrender.com`
-- Frontend: Vercel at `https://wanted-checkers-1pco.vercel.app`
+---
 
-### Neon PostgreSQL
+## Skins / PRO Preview
 
-1. Create a Neon project and copy the pooled or direct PostgreSQL connection
-   string.
-2. Apply the schema from your machine or a migration job:
+![PRO Modal](./screenshots/pro-modal.png)
+---
 
-   ```bash
-   psql "$DATABASE_URL" -f backend/src/schema.sql
-   ```
+## Live Demo
 
-3. Keep `DATABASE_URL` available to the Render backend. The schema enables
-   `pgcrypto`, so the connected database user must be allowed to create that
-   extension.
+- **Frontend:** [https://wanted-checkers-1pco.vercel.app](https://wanted-checkers-1pco.vercel.app)
+- **Backend:** [https://wanted-checkers.onrender.com](https://wanted-checkers.onrender.com)
+- **Repository:** `Add GitHub repository URL`
 
-### Render Backend
+---
 
-Set these Render environment variables:
+## About
 
-```bash
-DATABASE_URL=postgres://...
-JWT_SECRET=use-a-long-random-production-secret
-GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-FRONTEND_URL=https://wanted-checkers-1pco.vercel.app
-GROK_API_KEY=optional-grok-api-key
-```
+WANTED CHECKERS is a full-stack game platform prototype built around one idea:
 
-`FRONTEND_URL` is the production browser origin allowed by both Express CORS and
-Socket.IO CORS. Local development at `http://localhost:3000` is always allowed.
-Vercel preview origins matching `https://*.vercel.app` are also allowed for API
-and Socket.IO requests. If you want to pin multiple production origins, separate
-them with commas:
+> What if checkers felt like a dangerous competitive arena where every player becomes a wanted legend?
 
-```bash
-FRONTEND_URL=https://wanted-checkers-1pco.vercel.app,https://another-domain.example
-```
+Players can sign in with Google, play multiple game modes, challenge friends, build bounty, climb Kazakhstan regional leaderboards, review matches, and customize their visual identity.
 
-`CLIENT_ORIGIN` is still accepted as a legacy fallback, but new deployments
-should use `FRONTEND_URL`.
+It is designed as both a playable game and a startup-style product MVP.
 
-### Vercel Frontend
+---
 
-Set these Vercel environment variables:
+## Why It Is Valuable
 
-```bash
-NEXT_PUBLIC_API_URL=https://wanted-checkers.onrender.com
-NEXT_PUBLIC_SOCKET_URL=https://wanted-checkers.onrender.com
-NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-```
+- **Replay learning:** players can review completed matches move by move.
+- **Competitive progression:** bounty, tiers, streaks, and ranks create long-term goals.
+- **Social multiplayer:** matchmaking, direct challenges, and friends make the platform feel alive.
+- **Cinematic identity:** posters, themes, skins, sounds, and result overlays give the game a memorable brand.
+- **Product thinking:** the project combines gameplay, retention, progression, and presentation in one coherent MVP.
 
-`NEXT_PUBLIC_API_URL` is used for REST requests, including
-`/api/auth/google/status`. `NEXT_PUBLIC_SOCKET_URL` is used by Socket.IO. They
-can point to the same Render service.
+---
 
-### Google OAuth Origins
+## Features
 
-In the Google Cloud Console OAuth client, add authorized JavaScript origins for
-every frontend origin that should show the Google popup:
+### Core Gameplay
 
-```text
-http://localhost:3000
-https://wanted-checkers-1pco.vercel.app
-```
+- Server-authoritative checkers engine
+- Forced captures and multi-jump captures
+- Russian-style flying kings
+- Backward captures for regular pieces
+- Win and draw detection
+- Drag-and-drop pieces, animations, and sound effects
 
-For Vercel preview deployments, add each preview origin you intend to test.
-Google authorized JavaScript origins should be exact origins, not paths. This
-project uses the Google ID-token flow, so no `GOOGLE_CLIENT_SECRET` or redirect
-URI is required.
+### Multiplayer
 
-## API
+- Online matchmaking
+- Real-time Socket.IO game sync
+- Direct player challenges
+- Friends list and friend requests
+- Resign and draw offer flow
+- Active online match protection
 
-- `POST /api/game/start`
-- `POST /api/game/move` with `{ "gameId": "...", "from": 9, "to": 13 }`
-- `GET /api/game/state/:gameId`
-- `GET /api/game/moves/:gameId/:from` for backend-sourced move highlights
-- `POST /api/auth/google`
-- `POST /api/auth/onboarding`
-- `GET /api/auth/username/:username`
-- `GET /api/auth/google/status`
-- `GET /api/auth/me`
-- `PUT /api/auth/profile`
-- `GET /api/players/leaderboard` for the MVP WANTED board
-- `GET /api/players/leaderboard?region=Almaty` for regional WANTED boards
-- `GET /api/players/rank/me` for national and regional rank badges
-- `GET /api/matches/recent` for the signed-in user's last 3 matches
-- `GET /api/matches/:id/replay` for authorized replay snapshots
-- `POST /api/matches/:id/analysis` for cached AI Coach analysis
+### Progression
 
-Board state is a 32-element array of playable dark squares.
+- Google-only authentication
+- Player profiles and avatars
+- Bounty system
+- WANTED Board leaderboard
+- Kazakhstan regional rankings
+- Player statistics dashboard
 
-Finished games include a `matchResult` payload with bounty gain/loss, tiers,
-streak multiplier, and applied bonuses.
+### Replay + AI Coach
 
-Games can also end with `status: "draw"` when the same board position occurs
-three times or when 30 moves pass without a capture or king promotion. Draws do
-not award bounty.
+- Match history
+- Move-by-move replay viewer
+- Guided AI Coach review flow
+- Local tactical analysis
+- Optional Grok-enhanced coaching explanations
 
-Current gameplay is local PvP: a logged-in user owns Player 1, and Player 2 is
-played locally on the same board unless a real opponent is selected later.
-Local Player 2 matches intentionally do not update bounty yet; the result
-payload marks these as `localOnly`.
+### Visual Identity
 
-The `/play` page also supports built-in `vs AI` mode. The AI runs locally in the
-Express backend with Beginner, Intermediate, and Expert difficulty. No external
-AI APIs are used.
+- Cinematic WANTED-poster UI
+- Match result overlays
+- Theme system
+- Piece skins
+- Fake PRO presentation modal
 
-The `/play` page includes first-version online multiplayer through Socket.IO.
-Authenticated clients can choose `Online Multiplayer`, click `Find Match`, and
-the backend pairs two queued users into a live `multiplayer` game room. Moves are
-validated by the backend engine and broadcast to both players in real time.
-Players can also search by username and send direct challenge invites. Challenges
-are in-memory MVP invites, expire after a short timeout, and create the same live
-multiplayer game room when accepted.
+---
 
-The `/play` page also includes `Blitz Duel` for online matchmaking and direct
-friend/player challenges. Blitz games use server-authoritative clocks: each
-player has 3 minutes total and each active move has a 10-second limit. Timer
-state is stored on `games.blitz_state`, broadcast over Socket.IO, and timeout
-losses are finalized through the normal match result/replay flow.
+## Game Modes
 
-The `/play` page includes experimental `Blind Hunt` modes for local hot-seat play
-and online matchmaking/challenges. The backend still stores and validates the
-full board; the frontend renders a per-player fog layer so players only see
-their own pieces and nearby squares. Replays for Blind Hunt games can be viewed
-with full vision or either player's vision.
+- **Local PvP:** two players on one board.
+- **vs AI:** play against Beginner, Intermediate, or Expert backend AI.
+- **Online Multiplayer:** live player-vs-player matches.
+- **Blitz Duel:** fast online mode with 3-minute clocks and 10-second turns.
+- **Blind Hunt:** fog-of-war checkers where players only see nearby squares.
 
-Players select a structured Kazakhstan region during onboarding and profile
-editing. The existing `users.city` column stores only approved region values for
-compatibility. The WANTED Board can show Kazakhstan-wide rankings or a regional
-leaderboard; regional #1 players receive champion styling, and the global #1 is
-marked as Kazakhstan's Most Wanted.
+---
 
-Completed games store snapshot-rich `move_history` entries for replay. The
-profile page shows the latest matches and `/replay/:id` lets a participant step
-through the match or auto-play it one move per second.
+## Tech Stack
 
-The replay page includes an MVP AI Coach. The backend always performs local
-heuristic analysis first, caches the result per user and match, and can
-optionally use Grok only to rewrite those local findings into natural coaching
-language when `GROK_API_KEY` is configured. Free users are limited to 3 new
-analyses per day; the Pro upgrade prompt is presentation-only and has no billing
-backend.
+**Frontend**
 
-The `/play` page includes a lightweight friends system. Authenticated users can
-send, accept, and decline friend requests, view their friends list with live
-online/offline presence, and challenge friends through the existing multiplayer
-challenge flow.
+- Next.js 14
+- React
+- Tailwind CSS
+- Socket.IO Client
 
-Friendship API:
+**Backend**
 
-- `POST /api/friends/request` with `{ "addresseeUserId": 2 }`
-- `POST /api/friends/accept` with `{ "friendshipId": 1 }`
-- `POST /api/friends/decline` with `{ "friendshipId": 1 }`
-- `GET /api/friends/list`
-- `GET /api/friends/requests`
+- Node.js
+- Express
+- Socket.IO
+- JWT authentication
+- Google Identity Services
 
-## Avatars
+**Database + Deployment**
 
-Onboarding and profile edit support local avatar uploads for JPG, PNG, and WebP
-images up to 2MB. Uploaded files are stored under `uploads/avatars` and served
-by the backend at `/uploads/avatars/...`.
+- PostgreSQL / Neon
+- Render backend
+- Vercel frontend
 
-If no avatar is uploaded, the backend saves a generated default avatar URL based
-on the username.
+---
+
+
+## Author
+
+**Baltabai Bauyrzhan**
+
+Built as a cinematic full-stack multiplayer game MVP with strong product identity, competitive systems, and modern web architecture.
