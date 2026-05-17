@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import express from "express";
 import { requireAuth } from "../auth/middleware.js";
-import { applyAiTurn } from "../ai/aiEngine.js";
+import { chooseAiMove } from "../ai/aiEngine.js";
 import {
   applyMove,
   createInitialState,
+  getLegalMoves,
   getLegalMovesFrom,
   serializeMove
 } from "../engine/checkers.js";
@@ -15,6 +16,7 @@ import {
 } from "../gameRepository.js";
 import { completeMatchWithBounty } from "../matchResultService.js";
 import { findPlayerStatsByUserIds } from "../playerStatsRepository.js";
+import { appendReplayMove } from "../replay/moveHistory.js";
 
 export const gameRouter = express.Router();
 
@@ -98,23 +100,39 @@ gameRouter.post("/move", requireAuth, async (req, res, next) => {
       res.status(403).json({ error: "You are not a participant in this game." });
       return;
     }
+    if (game.mode === "multiplayer") {
+      res.status(409).json({ error: "Live multiplayer moves must be sent over WebSockets." });
+      return;
+    }
     if (game.mode === "vs_ai" && game.currentTurn !== 1) {
       res.status(409).json({ error: "AI is still resolving its turn." });
       return;
     }
 
-    let nextState = applyMove(toEngineState(game), { from, to });
+    const engineState = toEngineState(game);
+    const legalMove = getLegalMoves(engineState).find(
+      (move) => move.from === Number(from) && move.to === Number(to)
+    );
+    if (!legalMove) throw new Error("Illegal move.");
+
+    let nextState = applyMove(engineState, legalMove);
+    let moveHistory = appendReplayMove(game.moveHistory, engineState, legalMove, nextState, game.currentTurn);
     let aiMoves = [];
     if (game.mode === "vs_ai" && nextState.status === "ongoing" && nextState.currentTurn === 2) {
-      const aiTurn = applyAiTurn(nextState, game.aiDifficulty);
-      nextState = aiTurn.state;
-      aiMoves = aiTurn.moves.map(serializeMove);
+      while (nextState.status === "ongoing" && nextState.currentTurn === 2) {
+        const aiStateBefore = nextState;
+        const aiMove = chooseAiMove(aiStateBefore, game.aiDifficulty);
+        if (!aiMove) break;
+        nextState = applyMove(aiStateBefore, aiMove);
+        aiMoves.push(serializeMove(aiMove));
+        moveHistory = appendReplayMove(moveHistory, aiStateBefore, aiMove, nextState, 2);
+      }
     }
 
     const updated =
-      nextState.status === "finished"
-        ? await completeMatchWithBounty(game, nextState)
-        : await updateGameRecord(gameId, nextState);
+      nextState.status !== "ongoing"
+        ? await completeMatchWithBounty(game, { ...nextState, moveHistory })
+        : await updateGameRecord(gameId, { ...nextState, moveHistory });
 
     res.json({ ...updated, aiMoves });
   } catch (error) {
@@ -131,6 +149,8 @@ function toEngineState(game) {
     board: game.board,
     currentTurn: game.currentTurn,
     forcedFrom: game.forcedFrom,
+    positionCounts: game.positionCounts,
+    movesWithoutProgress: game.movesWithoutProgress,
     status: game.status,
     winner: game.winner
   };

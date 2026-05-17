@@ -70,7 +70,7 @@ export default function WantedBoardPage() {
               No posters on the wall yet
             </h2>
             <p className="mt-2 font-semibold text-stone-800">
-              Register, play, and become the first name pinned to the board.
+              Continue with Google, play, and become the first name pinned to the board.
             </p>
           </PosterPanel>
         ) : null}

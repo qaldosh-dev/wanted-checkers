@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 const DEFAULT_EXPIRES_SECONDS = 60 * 60 * 24 * 7;
+const ONBOARDING_EXPIRES_SECONDS = 60 * 15;
 
 export function signAccessToken(user, options = {}) {
   const now = Math.floor(Date.now() / 1000);
@@ -16,7 +17,33 @@ export function signAccessToken(user, options = {}) {
   return signJwt(payload);
 }
 
+export function signGoogleOnboardingToken(profile, options = {}) {
+  const now = Math.floor(Date.now() / 1000);
+  const expiresIn = options.expiresIn ?? ONBOARDING_EXPIRES_SECONDS;
+  return signJwt({
+    type: "google_onboarding",
+    googleSubject: profile.googleSubject,
+    email: profile.email,
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+    avatarUrl: profile.avatarUrl,
+    iat: now,
+    exp: now + expiresIn
+  });
+}
+
 export function verifyAccessToken(token) {
+  return verifyJwt(token);
+}
+
+export function verifyGoogleOnboardingToken(token) {
+  const payload = verifyJwt(token);
+  if (payload.type !== "google_onboarding") throw new Error("Invalid onboarding token.");
+  if (!payload.googleSubject || !payload.email) throw new Error("Invalid onboarding profile.");
+  return payload;
+}
+
+function verifyJwt(token) {
   const [encodedHeader, encodedPayload, signature] = token.split(".");
   if (!encodedHeader || !encodedPayload || !signature) throw new Error("Invalid token.");
 

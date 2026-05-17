@@ -5,12 +5,15 @@ import {
   P1,
   P2,
   P1_KING,
+  P2_KING,
   createInitialBoard,
   createInitialState,
   applyMove,
   getLegalMoves,
   getLegalMovesFrom,
-  indexFromRowCol
+  indexFromRowCol,
+  isNoProgressDraw,
+  isRepeatedPosition
 } from "../src/engine/checkers.js";
 
 function emptyBoard() {
@@ -233,6 +236,63 @@ test("game finishes when opponent has no legal moves", () => {
 
   assert.equal(nextState.status, "finished");
   assert.equal(nextState.winner, 1);
+});
+
+test("threefold repetition ends the game as a draw", () => {
+  const board = emptyBoard();
+  board[idx(5, 0)] = P1_KING;
+  board[idx(2, 7)] = P2_KING;
+  let state = {
+    board,
+    currentTurn: 1,
+    forcedFrom: null,
+    status: "ongoing",
+    winner: null,
+    movesWithoutProgress: 0,
+    positionCounts: {}
+  };
+
+  for (const [from, to] of [
+    [idx(5, 0), idx(4, 1)],
+    [idx(2, 7), idx(3, 6)],
+    [idx(4, 1), idx(5, 0)],
+    [idx(3, 6), idx(2, 7)],
+    [idx(5, 0), idx(4, 1)],
+    [idx(2, 7), idx(3, 6)],
+    [idx(4, 1), idx(5, 0)],
+    [idx(3, 6), idx(2, 7)]
+  ]) {
+    state = applyMove(state, { from, to });
+  }
+
+  assert.equal(state.status, "draw");
+  assert.equal(state.winner, null);
+  assert.equal(state.drawReason, "threefold_repetition");
+  assert.equal(isRepeatedPosition(state), true);
+});
+
+test("30 moves without capture or promotion ends the game as a draw", () => {
+  const board = emptyBoard();
+  board[idx(5, 0)] = P1_KING;
+  board[idx(2, 7)] = P2_KING;
+
+  const state = applyMove(
+    {
+      board,
+      currentTurn: 1,
+      forcedFrom: null,
+      status: "ongoing",
+      winner: null,
+      movesWithoutProgress: 29,
+      positionCounts: {}
+    },
+    { from: idx(5, 0), to: idx(4, 1) }
+  );
+
+  assert.equal(state.status, "draw");
+  assert.equal(state.winner, null);
+  assert.equal(state.drawReason, "no_progress");
+  assert.equal(isNoProgressDraw(state), true);
 });
 
 test("initial board helper matches expected setup", () => {

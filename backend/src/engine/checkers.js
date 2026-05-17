@@ -52,13 +52,17 @@ export function createInitialBoard() {
 }
 
 export function createInitialState() {
-  return {
+  const state = {
     board: createInitialBoard(),
     currentTurn: PLAYERS.P1,
     forcedFrom: null,
     status: "ongoing",
-    winner: null
+    winner: null,
+    movesWithoutProgress: 0,
+    positionCounts: {}
   };
+  state.positionCounts = { [positionKey(state)]: 1 };
+  return state;
 }
 
 export function rowColFromIndex(index) {
@@ -131,37 +135,47 @@ export function applyMove(state, input) {
   const { row } = rowColFromIndex(to);
   const promotedPiece = promoteIfNeeded(movingPiece, state.currentTurn, row);
   const promoted = promotedPiece !== movingPiece;
+  const progressed = legalMove.capture !== null || promoted;
+  const movesWithoutProgress = progressed ? 0 : (state.movesWithoutProgress ?? 0) + 1;
   nextBoard[to] = promotedPiece;
 
   if (hasNoPieces(nextBoard, opponentOf(state.currentTurn))) {
-    return finishState(nextBoard, state.currentTurn, state.currentTurn);
+    return finishState(nextBoard, state.currentTurn, state.currentTurn, {
+      movesWithoutProgress,
+      positionCounts: state.positionCounts
+    });
   }
 
   if (legalMove.capture !== null && !promoted) {
     const followUps = getPieceMoves(nextBoard, to, state.currentTurn).filter((move) => move.capture !== null);
     if (followUps.length > 0) {
-      return {
+      return applyDrawRules({
         board: nextBoard,
         currentTurn: state.currentTurn,
         forcedFrom: to,
         status: "ongoing",
-        winner: null
-      };
+        winner: null,
+        movesWithoutProgress
+      }, state);
     }
   }
 
   const nextPlayer = opponentOf(state.currentTurn);
   if (getLegalMoves({ board: nextBoard, currentTurn: nextPlayer, status: "ongoing", forcedFrom: null }).length === 0) {
-    return finishState(nextBoard, nextPlayer, state.currentTurn);
+    return finishState(nextBoard, nextPlayer, state.currentTurn, {
+      movesWithoutProgress,
+      positionCounts: state.positionCounts
+    });
   }
 
-  return {
+  return applyDrawRules({
     board: nextBoard,
     currentTurn: nextPlayer,
     forcedFrom: null,
     status: "ongoing",
-    winner: null
-  };
+    winner: null,
+    movesWithoutProgress
+  }, state);
 }
 
 export function serializeMove(move) {
@@ -176,6 +190,22 @@ export function serializeMove(move) {
 export function boardIndexToSquare(index) {
   const { row, col } = rowColFromIndex(index);
   return { index, row, col };
+}
+
+export function isRepeatedPosition(state) {
+  return Number(state.positionCounts?.[positionKey(state)] ?? 0) >= 3;
+}
+
+export function isNoProgressDraw(state) {
+  return Number(state.movesWithoutProgress ?? 0) >= 30;
+}
+
+export function positionKey(state) {
+  return JSON.stringify({
+    board: state.board,
+    currentTurn: state.currentTurn,
+    forcedFrom: state.forcedFrom ?? null
+  });
 }
 
 function getPieceMoves(board, from, player) {
@@ -286,13 +316,50 @@ function* walkDiagonal(row, col, rowDelta, colDelta) {
   }
 }
 
-function finishState(board, currentTurn, winner) {
+function applyDrawRules(nextState, previousState) {
+  const previousKey = positionKey(previousState);
+  const previousCounts = {
+    ...(previousState.positionCounts ?? {})
+  };
+  if (!previousCounts[previousKey]) previousCounts[previousKey] = 1;
+  const key = positionKey(nextState);
+  const positionCounts = {
+    ...previousCounts,
+    [key]: Number(previousCounts[key] ?? 0) + 1
+  };
+  const trackedState = {
+    ...nextState,
+    positionCounts
+  };
+
+  if (isRepeatedPosition(trackedState)) {
+    return drawState(trackedState, "threefold_repetition");
+  }
+  if (isNoProgressDraw(trackedState)) {
+    return drawState(trackedState, "no_progress");
+  }
+
+  return trackedState;
+}
+
+function drawState(state, drawReason) {
+  return {
+    ...state,
+    status: "draw",
+    winner: null,
+    drawReason
+  };
+}
+
+function finishState(board, currentTurn, winner, metadata = {}) {
   return {
     board,
     currentTurn,
     forcedFrom: null,
     status: "finished",
-    winner
+    winner,
+    movesWithoutProgress: metadata.movesWithoutProgress ?? 0,
+    positionCounts: metadata.positionCounts ?? {}
   };
 }
 
@@ -315,6 +382,8 @@ function normalizeStateArgs(stateOrBoard, maybePlayer, maybeForcedFrom) {
   return {
     forcedFrom: null,
     status: "ongoing",
+    movesWithoutProgress: 0,
+    positionCounts: {},
     ...stateOrBoard
   };
 }

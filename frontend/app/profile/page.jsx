@@ -10,7 +10,8 @@ import {
   PageBackground,
   PosterPanel,
   PosterStat,
-  TierBadge
+  TierBadge,
+  formatBounty
 } from "../components/wanted-ui";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -28,6 +29,8 @@ export default function ProfilePage() {
   });
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState("");
+  const [recentMatches, setRecentMatches] = useState([]);
+  const [matchesError, setMatchesError] = useState("");
 
   useEffect(() => {
     if (!auth.isAuthLoading && !auth.isAuthenticated) router.push("/login");
@@ -41,6 +44,26 @@ export default function ProfilePage() {
       city: auth.user.city ?? ""
     });
   }, [auth.user]);
+
+  useEffect(() => {
+    if (!auth.isAuthenticated) return;
+
+    async function loadRecentMatches() {
+      try {
+        const response = await fetch(`${API_URL}/api/matches/recent`, {
+          headers: auth.authHeaders(),
+          cache: "no-store"
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error ?? "Could not load recent matches.");
+        setRecentMatches(payload.matches);
+      } catch (caughtError) {
+        setMatchesError(caughtError.message);
+      }
+    }
+
+    loadRecentMatches();
+  }, [auth]);
 
   useEffect(() => {
     if (!avatarFile) {
@@ -181,11 +204,78 @@ export default function ProfilePage() {
               <p className="text-sm font-black uppercase text-stone-800">Total Games</p>
               <p className="mt-2 text-5xl font-black tracking-normal text-stone-950">{stats?.totalGames ?? 0}</p>
             </PosterPanel>
+
+            <PosterPanel className="p-5">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-sm font-black uppercase text-stone-800">Recent Matches</p>
+                  <h3 className="text-2xl font-black tracking-normal text-stone-950">Replay Ledger</h3>
+                </div>
+                <span className="text-xs font-black uppercase text-stone-700">Last 3</span>
+              </div>
+              {matchesError ? <p className="mt-4 rounded-md bg-red-950/80 px-3 py-2 text-sm text-red-100">{matchesError}</p> : null}
+              <div className="mt-4 space-y-3">
+                {recentMatches.map((match) => (
+                  <RecentMatchCard key={match.matchId} match={match} />
+                ))}
+                {recentMatches.length === 0 && !matchesError ? (
+                  <p className="rounded-md border border-stone-950/30 bg-stone-950/10 p-4 text-sm font-bold text-stone-800">
+                    No completed matches yet.
+                  </p>
+                ) : null}
+              </div>
+            </PosterPanel>
           </div>
         </section>
       </div>
     </PageBackground>
   );
+}
+
+function RecentMatchCard({ match }) {
+  return (
+    <article className="rounded-md border border-stone-950/35 bg-stone-950/10 p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase text-red-900">{resultLabel(match.result)}</p>
+          <h4 className="text-xl font-black tracking-normal text-stone-950">{match.opponent}</h4>
+          <p className="mt-1 text-xs font-bold uppercase text-stone-700">
+            {modeLabel(match.mode)} - {formatDate(match.createdAt)}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`rounded-md border px-3 py-2 text-sm font-black ${match.bountyChange >= 0 ? "border-amber-800/50 text-stone-950" : "border-red-900/50 text-red-950"}`}>
+            {match.bountyChange > 0 ? "+" : ""}{formatBounty(match.bountyChange)}
+          </span>
+          <a href={`/replay/${match.matchId}`} className="dark-button px-3 py-2 text-xs">
+            Watch Replay
+          </a>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function resultLabel(result) {
+  if (result === "win") return "Victory";
+  if (result === "loss") return "Defeat";
+  return "Draw";
+}
+
+function modeLabel(mode) {
+  if (mode === "vs_ai") return "vs AI";
+  if (mode === "multiplayer") return "Online Duel";
+  return "Local PvP";
+}
+
+function formatDate(value) {
+  if (!value) return "Unknown date";
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
 }
 
 function AvatarField({ onChange }) {

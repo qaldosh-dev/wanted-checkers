@@ -14,6 +14,10 @@ import {
 export async function completeMatchWithBounty(game, state, dependencies = {}) {
   const persistGame = dependencies.updateGameRecord ?? updateGameRecord;
 
+  if (state.status === "draw") {
+    return completeDrawMatch(game, state, persistGame);
+  }
+
   if (state.status !== "finished" || !state.winner) {
     return persistGame(game.gameId, state);
   }
@@ -27,26 +31,42 @@ export async function completeMatchWithBounty(game, state, dependencies = {}) {
       state.winner,
       "AI opponent game: bounty updates are only awarded when the human wins."
     );
-    return persistGame(
-      game.gameId,
-      {
-        ...state,
-        matchResult
-      },
-      { matchResult }
-    );
+    return withTransaction(async (client) => {
+      if (isIntegerUserId(game.playerOneUserId)) {
+        await createMatchRecord(game.gameId, null, game.playerOneUserId, matchResult, { client });
+      }
+      return persistGame(
+        game.gameId,
+        {
+          ...state,
+          matchResult
+        },
+        { client, matchResult }
+      );
+    });
   }
 
   if (!game.playerOneUserId || !game.playerTwoUserId) {
     const matchResult = buildLocalMatchResult(state.winner);
-    return persistGame(
-      game.gameId,
-      {
-        ...state,
-        matchResult
-      },
-      { matchResult }
-    );
+    return withTransaction(async (client) => {
+      if (isIntegerUserId(game.playerOneUserId)) {
+        await createMatchRecord(
+          game.gameId,
+          state.winner === 1 ? game.playerOneUserId : null,
+          state.winner === 1 ? null : game.playerOneUserId,
+          matchResult,
+          { client }
+        );
+      }
+      return persistGame(
+        game.gameId,
+        {
+          ...state,
+          matchResult
+        },
+        { client, matchResult }
+      );
+    });
   }
 
   return withTransaction(async (client) => {
@@ -75,6 +95,34 @@ export async function completeMatchWithBounty(game, state, dependencies = {}) {
     await updatePlayerStats(buildUpdatedLoserStats(loserStats, matchResult), { client });
     await createMatchRecord(game.gameId, winnerUserId, loserUserId, matchResult, { client });
 
+    return persistGame(
+      game.gameId,
+      {
+        ...state,
+        matchResult
+      },
+      { client, matchResult }
+    );
+  });
+}
+
+async function completeDrawMatch(game, state, persistGame) {
+  const matchResult = buildDrawMatchResult(state.drawReason);
+  const shouldStoreMatch = isIntegerUserId(game.playerOneUserId);
+
+  if (!shouldStoreMatch) {
+    return persistGame(
+      game.gameId,
+      {
+        ...state,
+        matchResult
+      },
+      { matchResult }
+    );
+  }
+
+  return withTransaction(async (client) => {
+    await createMatchRecord(game.gameId, null, null, matchResult, { client });
     return persistGame(
       game.gameId,
       {
@@ -146,6 +194,24 @@ function buildLocalMatchResult(winner, message = "Local Player 2 game: bounty up
   };
 }
 
+function buildDrawMatchResult(drawReason) {
+  return {
+    draw: true,
+    drawReason: drawReason ?? "unknown",
+    winner: null,
+    loser: null,
+    bountyGain: 0,
+    bountyLoss: 0,
+    winnerNewBounty: null,
+    loserNewBounty: null,
+    winnerTier: null,
+    loserTier: null,
+    streakMultiplier: 1,
+    bonusesApplied: [],
+    message: "NO PLAYER COULD CLAIM THE BOUNTY"
+  };
+}
+
 async function createMatchRecord(gameId, winnerUserId, loserUserId, result, options) {
   const executor = options.client ?? { query };
   await executor.query(
@@ -167,4 +233,8 @@ async function createMatchRecord(gameId, winnerUserId, loserUserId, result, opti
       JSON.stringify(result)
     ]
   );
+}
+
+function isIntegerUserId(userId) {
+  return Number.isInteger(userId);
 }

@@ -2,105 +2,81 @@ import express from "express";
 import { requireAuth } from "../auth/middleware.js";
 import {
   hasValidationErrors,
-  validateLoginPayload,
+  validateOnboardingPayload,
   validateProfileUpdatePayload,
-  validateRegisterPayload
+  validateUsernameParam
 } from "../auth/validation.js";
 import {
-  loginGoogleUserWithCode,
-  loginGoogleUser,
-  loginLocalUser,
-  registerLocalUser
+  completeGoogleOnboarding,
+  getUsernameAvailability,
+  loginGoogleUser
 } from "../auth/authService.js";
-import {
-  buildGoogleAuthorizationUrl,
-  isGoogleOAuthConfigured
-} from "../auth/google.js";
+import { getGoogleClientId, isGoogleOAuthConfigured } from "../auth/google.js";
 import { findPlayerStatsByUserId } from "../playerStatsRepository.js";
-import { avatarUpload, buildDefaultAvatarUrl } from "../uploads/avatarUpload.js";
+import { avatarUpload } from "../uploads/avatarUpload.js";
 import { updateUserProfile } from "../userRepository.js";
 
 export const authRouter = express.Router();
 
-authRouter.post("/register", avatarUpload, async (req, res, next) => {
+authRouter.post("/google", async (req, res) => {
   try {
-    const { data, errors } = validateRegisterPayload(req.body ?? {});
-    if (hasValidationErrors(errors)) {
-      res.status(400).json({ error: "Validation failed.", fields: errors });
+    if (!isGoogleOAuthConfigured()) {
+      res.status(503).json({ error: "Google login is not configured" });
       return;
     }
 
-    const result = await registerLocalUser({
-      ...data,
-      avatarUrl: req.avatarUrl ?? buildDefaultAvatarUrl(data.username)
-    });
-    res.status(result.status).json(result.body);
-  } catch (error) {
-    next(error);
-  }
-});
-
-authRouter.post("/login", async (req, res, next) => {
-  try {
-    const { data, errors } = validateLoginPayload(req.body ?? {});
-    if (hasValidationErrors(errors)) {
-      res.status(400).json({ error: "Validation failed.", fields: errors });
-      return;
-    }
-
-    const result = await loginLocalUser(data);
-    res.status(result.status).json(result.body);
-  } catch (error) {
-    next(error);
-  }
-});
-
-authRouter.post("/google", async (req, res, next) => {
-  try {
     const result = await loginGoogleUser({
-      idToken: req.body?.idToken,
-      city: req.body?.city
+      credential: req.body?.credential
     });
     res.status(result.status).json(result.body);
   } catch (error) {
     res.status(401).json({ error: error.message });
+  }
+});
+
+authRouter.post("/onboarding", avatarUpload, async (req, res, next) => {
+  try {
+    const { data, errors } = validateOnboardingPayload(req.body ?? {});
+    if (hasValidationErrors(errors)) {
+      res.status(400).json({ error: "Validation failed.", fields: errors });
+      return;
+    }
+
+    const result = await completeGoogleOnboarding({
+      ...data,
+      avatarUrl: req.avatarUrl ?? data.avatarUrl
+    });
+    res.status(result.status).json(result.body);
+  } catch (error) {
+    if (error.message.includes("onboarding") || error.message.includes("token")) {
+      res.status(401).json({ error: error.message });
+      return;
+    }
+    next(error);
+  }
+});
+
+authRouter.get("/username/:username", async (req, res, next) => {
+  try {
+    const { username, error } = validateUsernameParam(req.params.username);
+    if (error) {
+      res.status(400).json({ username, available: false, error });
+      return;
+    }
+
+    res.json(await getUsernameAvailability(username));
+  } catch (error) {
+    next(error);
   }
 });
 
 authRouter.get("/google/status", (_req, res) => {
+  const enabled = isGoogleOAuthConfigured();
   res.json({
-    enabled: isGoogleOAuthConfigured()
+    enabled,
+    clientId: enabled ? getGoogleClientId() : null,
+    message: enabled ? null : "Google login is not configured"
   });
-});
-
-authRouter.get("/google/url", (_req, res) => {
-  try {
-    if (!isGoogleOAuthConfigured()) {
-      res.status(503).json({ error: "Google login coming soon." });
-      return;
-    }
-
-    res.json(buildGoogleAuthorizationUrl());
-  } catch (error) {
-    res.status(503).json({ error: error.message });
-  }
-});
-
-authRouter.post("/google/callback", async (req, res) => {
-  try {
-    if (!isGoogleOAuthConfigured()) {
-      res.status(503).json({ error: "Google login coming soon." });
-      return;
-    }
-
-    const result = await loginGoogleUserWithCode({
-      code: req.body?.code,
-      city: req.body?.city
-    });
-    res.status(result.status).json(result.body);
-  } catch (error) {
-    res.status(401).json({ error: error.message });
-  }
 });
 
 authRouter.get("/me", requireAuth, async (req, res, next) => {

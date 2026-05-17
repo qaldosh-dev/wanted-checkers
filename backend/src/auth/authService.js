@@ -3,83 +3,85 @@ import { createPlayerStatsForUser, findPlayerStatsByUserId } from "../playerStat
 import {
   createUser,
   findUserByEmail,
-  findUserByIdentifierWithPassword,
-  isUsernameOrEmailTaken
+  findUserByGoogleId,
+  isUsernameTaken,
+  updateUserGoogleIdentity
 } from "../userRepository.js";
-import { exchangeGoogleCodeForIdToken, verifyGoogleIdToken } from "./google.js";
-import { signAccessToken } from "./jwt.js";
-import { hashPassword, verifyPassword } from "./password.js";
+import { buildDefaultAvatarUrl } from "../uploads/avatarUpload.js";
+import { verifyGoogleIdToken } from "./google.js";
+import { signAccessToken, signGoogleOnboardingToken, verifyGoogleOnboardingToken } from "./jwt.js";
 
-export async function registerLocalUser(data) {
+export async function loginGoogleUser({ credential }) {
+  const googleProfile = await verifyGoogleIdToken(credential);
+
   return withTransaction(async (client) => {
-    const taken = await isUsernameOrEmailTaken(data, { client });
-    if (taken.username || taken.email) {
+    let user = await findUserByGoogleId(googleProfile.googleSubject, { client });
+    if (!user) user = await findUserByEmail(googleProfile.email, { client });
+
+    if (user) {
+      user = await updateUserGoogleIdentity(user.id, googleProfile, { client });
+      const stats = await createPlayerStatsForUser(user.id, { client });
+      return authResponse(user, stats);
+    }
+
+    return {
+      status: 202,
+      body: {
+        onboardingRequired: true,
+        onboardingToken: signGoogleOnboardingToken(googleProfile),
+        profile: publicGoogleProfile(googleProfile),
+        suggestedUsername: await buildSuggestedUsername(googleProfile, client)
+      }
+    };
+  });
+}
+
+export async function completeGoogleOnboarding({ onboardingToken, username, city, avatarUrl }) {
+  const googleProfile = verifyGoogleOnboardingToken(onboardingToken);
+
+  return withTransaction(async (client) => {
+    let user = await findUserByGoogleId(googleProfile.googleSubject, { client });
+    if (!user) user = await findUserByEmail(googleProfile.email, { client });
+
+    if (user) {
+      user = await updateUserGoogleIdentity(user.id, googleProfile, { client });
+      const stats = await createPlayerStatsForUser(user.id, { client });
+      return authResponse(user, stats);
+    }
+
+    if (await isUsernameTaken(username, { client })) {
       return {
         status: 409,
         body: {
-          error: "Username or email is already taken.",
-          fields: {
-            username: taken.username ? "Username is already taken." : undefined,
-            email: taken.email ? "Email is already taken." : undefined
-          }
+          error: "Username is already taken.",
+          fields: { username: "Username is already taken." }
         }
       };
     }
 
-    const user = await createUser(
+    user = await createUser(
       {
-        ...data,
-        passwordHash: await hashPassword(data.password),
-        provider: "local"
+        googleId: googleProfile.googleSubject,
+        firstName: googleProfile.firstName || "Wanted",
+        lastName: googleProfile.lastName || "Player",
+        username,
+        email: googleProfile.email,
+        city,
+        avatarUrl: avatarUrl || googleProfile.avatarUrl || buildDefaultAvatarUrl(username),
+        provider: "google"
       },
       { client }
     );
     const stats = await createPlayerStatsForUser(user.id, { client });
-
     return authResponse(user, stats, 201);
   });
 }
 
-export async function loginLocalUser({ identifier, password }) {
-  const user = await findUserByIdentifierWithPassword(identifier);
-  if (!user || !(await verifyPassword(password, user.passwordHash))) {
-    return { status: 401, body: { error: "Invalid email/username or password." } };
-  }
-
-  const stats = await findPlayerStatsByUserId(user.id);
-  return authResponse(user, stats);
-}
-
-export async function loginGoogleUser({ idToken, city }) {
-  const googleProfile = await verifyGoogleIdToken(idToken);
-
-  return withTransaction(async (client) => {
-    let user = await findUserByEmail(googleProfile.email, { client });
-
-    if (!user) {
-      user = await createUser(
-        {
-          firstName: googleProfile.firstName || "Wanted",
-          lastName: googleProfile.lastName || "Player",
-          username: await buildUniqueGoogleUsername(googleProfile.email, client),
-          email: googleProfile.email,
-          passwordHash: null,
-          city: city ?? "",
-          avatarUrl: googleProfile.avatarUrl,
-          provider: "google"
-        },
-        { client }
-      );
-    }
-
-    const stats = await createPlayerStatsForUser(user.id, { client });
-    return authResponse(user, stats);
-  });
-}
-
-export async function loginGoogleUserWithCode({ code, city }) {
-  const idToken = await exchangeGoogleCodeForIdToken(code);
-  return loginGoogleUser({ idToken, city });
+export async function getUsernameAvailability(username) {
+  return {
+    username,
+    available: !(await isUsernameTaken(username))
+  };
 }
 
 function authResponse(user, stats, status = 200) {
@@ -93,20 +95,29 @@ function authResponse(user, stats, status = 200) {
   };
 }
 
-async function buildUniqueGoogleUsername(email, client) {
-  const normalized = email
-    .split("@")[0]
+async function buildSuggestedUsername(profile, client) {
+  const source = `${profile.firstName}_${profile.lastName}`.trim() || profile.email.split("@")[0];
+  const normalized = source
     .toLowerCase()
     .replace(/[^a-z0-9_]/g, "_")
     .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
     .slice(0, 20);
-  const base = normalized.length >= 3 ? normalized : "google_player";
+  const base = normalized.length >= 3 ? normalized : "wanted_player";
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const username = attempt === 0 ? base : `${base}_${attempt}`;
-    const taken = await isUsernameOrEmailTaken({ username, email: `${username}@placeholder.local` }, { client });
-    if (!taken.username) return username;
+    if (!(await isUsernameTaken(username, { client }))) return username;
   }
 
   return `${base}_${Date.now().toString(36)}`.slice(0, 24);
+}
+
+function publicGoogleProfile(profile) {
+  return {
+    email: profile.email,
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+    avatarUrl: profile.avatarUrl
+  };
 }

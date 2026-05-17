@@ -7,7 +7,7 @@ Minimal playable MVP checkers game.
 - Frontend: Next.js 14 App Router, React, Tailwind CSS
 - Backend: Node.js, Express REST API
 - Database: PostgreSQL
-- Auth: JWT local login plus Google ID token login
+- Auth: Google Identity Services plus JWT sessions
 
 ## Setup
 
@@ -47,9 +47,12 @@ The landing page is `/`, the playable board is `/play`, and the leaderboard is
 
 ## Google OAuth
 
-Google login is enabled only when all required server-side variables are set.
-If any are missing, the login page shows a disabled `Google login coming soon`
-button.
+WANTED CHECKERS uses Google-only authentication. Google Identity Services runs
+in the browser and the Express backend verifies the
+returned ID token on the Express backend with `google-auth-library`.
+
+Google login is enabled only when `GOOGLE_CLIENT_ID` is set. If it is missing,
+the login page shows a disabled `Google login is not configured` button.
 
 1. Create an OAuth 2.0 Client ID in Google Cloud Console.
 2. Set the authorized JavaScript origin to:
@@ -58,22 +61,15 @@ button.
    http://localhost:3000
    ```
 
-3. Set the authorized redirect URI to:
-
-   ```text
-   http://localhost:3000/auth/google/callback
-   ```
-
-4. Add these values to `.env`:
+3. Add the client ID to `.env`:
 
    ```bash
    GOOGLE_CLIENT_ID=your-google-client-id
-   GOOGLE_CLIENT_SECRET=your-google-client-secret
-   GOOGLE_REDIRECT_URI=http://localhost:3000/auth/google/callback
    ```
 
-For production, use your deployed frontend callback URL as
-`GOOGLE_REDIRECT_URI` and register that exact URI in Google Cloud.
+No `GOOGLE_CLIENT_SECRET` or redirect URI is required for this ID-token flow.
+For production, add your deployed frontend origin to the same Google OAuth
+client.
 
 ## API
 
@@ -81,20 +77,24 @@ For production, use your deployed frontend callback URL as
 - `POST /api/game/move` with `{ "gameId": "...", "from": 9, "to": 13 }`
 - `GET /api/game/state/:gameId`
 - `GET /api/game/moves/:gameId/:from` for backend-sourced move highlights
-- `POST /api/auth/register`
-- `POST /api/auth/login`
 - `POST /api/auth/google`
+- `POST /api/auth/onboarding`
+- `GET /api/auth/username/:username`
 - `GET /api/auth/google/status`
-- `GET /api/auth/google/url`
-- `POST /api/auth/google/callback`
 - `GET /api/auth/me`
 - `PUT /api/auth/profile`
 - `GET /api/players/leaderboard` for the MVP WANTED board
+- `GET /api/matches/recent` for the signed-in user's last 3 matches
+- `GET /api/matches/:id/replay` for authorized replay snapshots
 
 Board state is a 32-element array of playable dark squares.
 
 Finished games include a `matchResult` payload with bounty gain/loss, tiers,
 streak multiplier, and applied bonuses.
+
+Games can also end with `status: "draw"` when the same board position occurs
+three times or when 30 moves pass without a capture or king promotion. Draws do
+not award bounty.
 
 Current gameplay is local PvP: a logged-in user owns Player 1, and Player 2 is
 played locally on the same board unless a real opponent is selected later.
@@ -105,11 +105,36 @@ The `/play` page also supports built-in `vs AI` mode. The AI runs locally in the
 Express backend with Beginner, Intermediate, and Expert difficulty. No external
 AI APIs are used.
 
+The `/play` page includes first-version online multiplayer through Socket.IO.
+Authenticated clients can choose `Online Multiplayer`, click `Find Match`, and
+the backend pairs two queued users into a live `multiplayer` game room. Moves are
+validated by the backend engine and broadcast to both players in real time.
+Players can also search by username and send direct challenge invites. Challenges
+are in-memory MVP invites, expire after a short timeout, and create the same live
+multiplayer game room when accepted.
+
+Completed games store snapshot-rich `move_history` entries for replay. The
+profile page shows the latest matches and `/replay/:id` lets a participant step
+through the match or auto-play it one move per second.
+
+The `/play` page includes a lightweight friends system. Authenticated users can
+send, accept, and decline friend requests, view their friends list with live
+online/offline presence, and challenge friends through the existing multiplayer
+challenge flow.
+
+Friendship API:
+
+- `POST /api/friends/request` with `{ "addresseeUserId": 2 }`
+- `POST /api/friends/accept` with `{ "friendshipId": 1 }`
+- `POST /api/friends/decline` with `{ "friendshipId": 1 }`
+- `GET /api/friends/list`
+- `GET /api/friends/requests`
+
 ## Avatars
 
-Registration and profile edit support local avatar uploads for JPG, PNG, and
-WebP images up to 2MB. Uploaded files are stored under `uploads/avatars` and
-served by the backend at `/uploads/avatars/...`.
+Onboarding and profile edit support local avatar uploads for JPG, PNG, and WebP
+images up to 2MB. Uploaded files are stored under `uploads/avatars` and served
+by the backend at `/uploads/avatars/...`.
 
 If no avatar is uploaded, the backend saves a generated default avatar URL based
 on the username.

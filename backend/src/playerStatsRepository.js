@@ -63,7 +63,7 @@ export async function findPlayerStatsByUserIds(userIds, options = {}) {
             ps.tier
      FROM player_stats ps
      JOIN users u ON u.id = ps.user_id
-     WHERE ps.user_id = ANY($1::uuid[])
+     WHERE ps.user_id = ANY($1::int[])
      ORDER BY ps.bounty DESC, ps.wins DESC
      ${lockClause}`,
     [userIds]
@@ -90,6 +90,33 @@ export async function listPlayerStats(options = {}) {
      FROM player_stats ps
      JOIN users u ON u.id = ps.user_id
      ORDER BY ps.bounty DESC, ps.wins DESC, u.username ASC`
+  );
+
+  return result.rows.map(mapPlayerStatsRow);
+}
+
+export async function searchPlayerStatsByUsername(searchTerm, excludeUserId, options = {}) {
+  const executor = options.client ?? { query };
+  const result = await executor.query(
+    `SELECT ps.user_id,
+            u.username,
+            u.first_name,
+            u.last_name,
+            u.city,
+            u.avatar_url,
+            ps.bounty,
+            ps.wins,
+            ps.losses,
+            ps.current_win_streak,
+            ps.best_win_streak,
+            ps.tier
+     FROM player_stats ps
+     JOIN users u ON u.id = ps.user_id
+     WHERE LOWER(u.username) LIKE LOWER($1)
+       AND ps.user_id <> $2
+     ORDER BY ps.bounty DESC, ps.wins DESC, u.username ASC
+     LIMIT 8`,
+    [`%${searchTerm}%`, excludeUserId]
   );
 
   return result.rows.map(mapPlayerStatsRow);
